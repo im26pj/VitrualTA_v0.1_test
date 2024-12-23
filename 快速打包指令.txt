@@ -1,0 +1,2 @@
+在檔案所在位置執行cmd
+pyuic5 -x ollama_ui.ui -o ollama_ui.py
