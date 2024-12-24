@@ -62,4 +62,5 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = MyApp()  # 創建主視窗
     window.show()  # 顯示視窗
+    
     sys.exit(app.exec_())  # 開始事件迴圈
