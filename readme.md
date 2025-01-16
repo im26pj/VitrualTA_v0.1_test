@@ -66,3 +66,5 @@ git pull
 **建立分支**
 git checkout -b 分支名稱(建議英文)
 
+**你媽**
+
