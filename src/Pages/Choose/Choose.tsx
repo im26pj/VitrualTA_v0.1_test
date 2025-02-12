@@ -5,17 +5,12 @@ export const Choose = (): JSX.Element => {
   const [showDropdown, setShowDropdown] = useState(false);
   const navigate = useNavigate();
 
-  const handleDropdownToggle = () => {
-    setShowDropdown(!showDropdown);
-  };
-
   const handleNavigate = (path: string) => {
     navigate(path);
-    setShowDropdown(false);
   };
 
   return (
-    <div className="relative w-full h-[100vh] bg-[#6582d2] overflow-hidden">
+    <div className="relative w-full min-h-screen bg-[#6582d2] flex flex-col items-center justify-center p-4">
       <style>
         {`
           @import url('https://fonts.googleapis.com/css2?family=Kavoon&display=swap');
@@ -24,44 +19,49 @@ export const Choose = (): JSX.Element => {
           }
         `}
       </style>
-      <div className="relative w-[1440px] h-[1024px] bg-[#6582d2]">
-        {/*導航欄 */}
-        <div className="absolute w-[520px] h-[300px] top-[35px] left-[980px]">
-          <div className="flex w-[520px] h-[90px] items-center gap-[25px] px-5 py-0 relative bg-[#d9d9d9] rounded-[28px]">
-            <div className="relative w-fit mt-[-1.00px] text-black text-[40px] tracking-[0] leading-[normal]">
-              Select
-            </div>
-
-            <img
-              className="relative w-[46.77px] h-[39px] cursor-pointer"
-              alt="Polygon"
-              src="https://c.animaapp.com/ffsYqFjp/img/polygon-3-2.svg"
-              onClick={handleDropdownToggle}
-            />
-          </div>
-        </div>
-
-        <div className="absolute w-[471px] h-[350px] top-[340px] left-[100px] text-white text-8xl tracking-[0] leading-[normal] font-kavoon">
-          Virtual TA
-        </div>
+      
+      {/* 標題 */}
+      <div className="mb-10 text-white text-4xl sm:text-6xl md:text-8xl font-kavoon text-center">
+        Virtual TA
       </div>
 
-      {showDropdown && (
-        <div className="absolute left-[980px] top-[130px] mt-3 w-[520px] space-y-2 rounded-lg border border-gray-100 bg-[#d9d9d9] p-2 text-[40px] shadow-lg">
-          <button
-            className="inline-block w-full rounded-md px-2 py-1 text-black hover:bg-[#2ecbff]"
-            onClick={() => handleNavigate("/signin")}
-          >
-            Sign in
-          </button>
-          <button
-            className="inline-block w-full rounded-md px-2 py-1 text-black hover:bg-[#2ecbff]"
-            onClick={() => handleNavigate("/personal-learning")}
-          >
-            Personal Learning
-          </button>
+      {/* 導航欄 */}
+      <div className="relative w-full max-w-lg">
+      <style>{`
+          @import url('https://fonts.googleapis.com/css2?family=Inknut+Antiqua:wght@400;700&display=swap');
+          .font-Inknut_Antiqua-Regular {
+            font-family: 'Inknut Antiqua', serif;
+          }
+        `}</style>
+        <div 
+          className="flex items-center justify-between bg-[#d9d9d9] rounded-xl px-5 py-3 shadow-lg cursor-pointer" 
+          onClick={() => setShowDropdown(!showDropdown)}
+        >
+          <div className="text-black text-xl sm:text-2xl font-Inknut_Antiqua-Regular">Select</div>
+          <img
+            className="w-8 h-8"
+            alt="Polygon"
+            src="https://c.animaapp.com/ffsYqFjp/img/polygon-3-2.svg"
+          />
         </div>
-      )}
+
+        {showDropdown && (
+          <div className="absolute w-full mt-2 bg-[#d9d9d9] p-4 rounded-lg shadow-lg flex flex-col text-xl sm:text-2xl">
+            <button
+              className="w-full px-4 py-2 text-black hover:bg-[#2ecbff] rounded-md font-Inknut_Antiqua-Regular"
+              onClick={() => handleNavigate("/signin")}
+            >
+              Sign in
+            </button>
+            <button
+              className="w-full px-4 py-2 text-black hover:bg-[#2ecbff] rounded-md mt-2 font-Inknut_Antiqua-Regular"
+              onClick={() => handleNavigate("/personal-learning")}
+            >
+              Personal Learning
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 };

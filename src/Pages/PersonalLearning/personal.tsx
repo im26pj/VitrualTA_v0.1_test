@@ -1,7 +1,7 @@
-import React, { JSX, useState } from "react";
+import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-export const PersonalLearning = (): JSX.Element => {
+export const PersonalLearning = () => {
   const [showDropdown, setShowDropdown] = useState(false);
   const navigate = useNavigate();
 
@@ -9,63 +9,60 @@ export const PersonalLearning = (): JSX.Element => {
     setShowDropdown(!showDropdown);
   };
 
-  const handleNavigate = (path: string) => {
+  const handleNavigate = (path) => {
     navigate(path);
     setShowDropdown(false);
   };
 
   return (
-    <div className="bg-[#6683d2] flex flex-col justify-center items-center min-h-screen">
-      <div className="bg-[#6683d2] w-full max-w-[1440px] h-full min-h-[1024px] relative p-4">
-        <div className="absolute w-full max-w-[1440px] h-[191px] top-0 left-0 bg-[#b5d1e1] rounded-b-[var(--shape-corner-extra-large)]">
-          <img
-            className="absolute w-[140px] h-[140px] top-[25px] right-[25px] object-cover"
-            alt="Element"
-            src="https://c.animaapp.com/qsOI3aZQ/img/2021781015212021@2x.png"
-          />
-
-          <div
-            className="absolute top-[24px] left-[33px] font-kavoon font-normal text-white text-[40px] tracking-[0] leading-[normal] whitespace-nowrap z-10 cursor-pointer"
-            onClick={() => handleNavigate("/choose")}
-          >
+    <div className="bg-[#6683d2] flex flex-col justify-center items-center min-h-screen w-full">
+      <div className="bg-[#6683d2] w-full max-w-screen-xl h-full min-h-screen relative p-4 flex flex-col items-center">
+        {/* Header */}
+        <div className="w-full bg-[#b5d1e1] py-6 px-8 flex items-center shadow-md fixed top-0 left-0 right-0 rounded-b-[28px]">
+        <style>
+          {`
+            @import url('https://fonts.googleapis.com/css2?family=Kavoon&display=swap');
+            .font-kavoon {
+              font-family: 'Kavoon', cursive;
+            }
+          `}
+        </style>
+        <style>{`
+          @import url('https://fonts.googleapis.com/css2?family=Inknut+Antiqua:wght@400;700&display=swap');
+          .font-Inknut_Antiqua-Regular {
+            font-family: 'Inknut Antiqua', serif;
+          }
+        `}</style>
+          <div className="text-white text-3xl font-kavoon mr-auto cursor-pointer" onClick={() => handleNavigate("/choose")}>
             Virtual TA
           </div>
-
-          <div className="absolute top-[62px] left-[338px] bg-[#d9d9d9] rounded-[28px] p-4">
-            <div className="font-normal text-black text-[28px] tracking-[0] leading-[normal]">
-              Group Learning
-            </div>
-          </div>
-
-          <div className="absolute top-[62px] left-[682px] bg-[#d9d9d9] rounded-[28px] p-4">
-            <div className="font-normal text-black text-[28px] tracking-[0] leading-[normal]">
-              Learning outcomes tracking
-            </div>
-          </div>
+          <div className="text-black text-2xl bg-[#d9d9d9] rounded-[28px] px-6 py-2 mx-4 font-Inknut_Antiqua-Regular">Group Learning</div>
+          <div className="text-black text-2xl bg-[#d9d9d9] rounded-[28px] px-6 py-2 font-Inknut_Antiqua-Regular">Learning outcomes tracking</div>
+          <img className="w-16 h-16 object-cover rounded-full ml-auto cursor-pointer" onClick={() => handleNavigate("/signin")} alt="Profile" src="https://c.animaapp.com/qsOI3aZQ/img/2021781015212021@2x.png" />
         </div>
 
-        <div className="absolute w-full max-w-[426px] h-auto min-h-[700px] top-[260px] right-0 bg-white rounded-[50px] p-4">
-          <div className="w-full h-20 bg-[#d9d9d9] rounded-[28px] p-4 flex items-center justify-between">
-            <div className="font-normal text-[#000000b2] text-5xl tracking-[0] leading-[normal]">
-              #
-            </div>
-            <img
-              className="w-[30px] h-[35px]"
-              alt="Polygon"
-              src="https://c.animaapp.com/qsOI3aZQ/img/polygon-1.svg"
+        {/* Main Content */}
+        <div className="flex flex-col md:flex-row justify-between items-center w-full mt-32 px-4">
+          <img className="w-full md:w-1/2 max-w-lg h-auto" alt="Element" src="https://c.animaapp.com/qsOI3aZQ/img/53783794637-44b575bb56-b-removebg-preview.png" />
+          <div className="w-full max-w-md bg-white rounded-[50px] p-6 shadow-lg h-[550px] flex flex-col">
+          <style>{`
+          @import url('https://fonts.googleapis.com/css2?family=Inknut+Antiqua:wght@400;700&display=swap');
+          .font-Inknut_Antiqua-Regular {
+            font-family: 'Inknut Antiqua', serif;
+          }
+        `}</style>
+            <p className="text-black text-2xl mb-4 font-Inknut_Antiqua-Regular">What can I do for you?</p>
+            <div className="mt-auto w-full bg-[#d9d9d9] rounded-[28px] p-4 flex items-center justify-between">
+              <div className="font-normal text-[#000000b2] text-5xl">#</div>
+              <input 
+              type="text" 
+              className="ml-2 flex-1 bg-transparent focus:outline-none text-lg"
+              placeholder="Type your message..."
             />
+              <img className="w-[30px] h-[35px]" alt="Polygon" src="https://c.animaapp.com/qsOI3aZQ/img/polygon-1.svg" />
+            </div>
           </div>
-
-          <p className="mt-4 font-normal text-black text-[28px] tracking-[0] leading-[normal]">
-            What can I do for you?
-          </p>
         </div>
-
-        <img
-          className="absolute w-full max-w-[792px] h-auto top-[260px] left-0"
-          alt="Element"
-          src="https://c.animaapp.com/qsOI3aZQ/img/53783794637-44b575bb56-b-removebg-preview.png"
-        />
       </div>
     </div>
   );

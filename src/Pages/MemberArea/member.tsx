@@ -1,55 +1,70 @@
-import React, { JSX, useState } from "react";
+import React from "react";
 import { useNavigate } from "react-router-dom";
 
-export const MemberArea = (): JSX.Element => {
-  const [showDropdown, setShowDropdown] = useState(false);
+export const MemberArea = () => {
   const navigate = useNavigate();
-
-  const handleDropdownToggle = () => {
-    setShowDropdown(!showDropdown);
-  };
 
   const handleNavigate = (path: string) => {
     navigate(path);
-    setShowDropdown(false);
   };
 
   return (
-    <div className="bg-[#6683d2] flex flex-col justify-center items-center min-h-screen">
-      <div className="bg-[#6683d2] w-full max-w-[1440px] h-full min-h-[1024px] relative p-4">
-        <div className="w-full max-w-[357px] h-auto min-h-[688px] mt-[267px] mx-auto bg-white rounded-[28px]">
-          <div className="w-full h-[146px] bg-[#d9d9d9] rounded-t-[28px]" />
-          <div className="w-full px-4 py-2 text-center text-black text-[28px] font-normal">
+    <div className="bg-[#7EA2E6] flex flex-col items-center w-full min-h-screen relative">
+      {/* Header */}
+      <div className="w-full bg-[#B5D1E1] py-6 px-8 flex items-center shadow-md fixed top-0 left-0 right-0 rounded-b-[28px]">
+        <style>
+          {`
+            @import url('https://fonts.googleapis.com/css2?family=Kavoon&display=swap');
+            .font-kavoon {
+              font-family: 'Kavoon', cursive;
+            }
+          `}
+        </style>
+        <div className="text-white text-3xl font-kavoon mr-auto cursor-pointer"onClick={() => handleNavigate("/choose")}>Virtual TA</div>
+        <div className="text-white text-4xl font-kavoon mx-auto">Member Account</div>
+        <img
+          className="w-16 h-16 object-cover rounded-full border-2 border-white ml-auto cursor-pointer"onClick={() => handleNavigate("/signin")}
+          alt="Profile"
+          src="https://c.animaapp.com/iiDcfYsY/img/2021781015212021@2x.png"
+        />
+      </div>
+
+      {/* Main Content */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mt-36 w-full max-w-screen-xl px-4 flex-1">
+        <style>{`
+          @import url('https://fonts.googleapis.com/css2?family=Inknut+Antiqua:wght@400;700&display=swap');
+          .font-Inknut_Antiqua-Regular {
+            font-family: 'Inknut Antiqua', serif;
+          }
+        `}</style>
+        
+        {/* Personal Info */}
+        <div className="bg-white rounded-2xl shadow-lg flex flex-col items-center w-full h-[550px]">
+          <div className="w-full bg-gray-300 py-4 text-center font-bold rounded-t-lg h-[80px] text-2xl font-Inknut_Antiqua-Regular">
             Personal information settings
           </div>
         </div>
 
-        <div className="w-full max-w-[357px] h-auto min-h-[690px] mt-[267px] mx-auto bg-white rounded-[28px]">
-          <div className="w-full h-[146px] bg-[#d9d9d9] rounded-t-[28px]" />
-          <div className="w-full px-4 py-2 text-center text-black text-[28px] font-normal">
+        {/* Payment Management */}
+        <div className="bg-white rounded-2xl shadow-lg flex flex-col items-center w-full h-[550px]">
+          <div className="w-full bg-gray-300 py-4 text-center font-bold rounded-t-lg h-[80px] text-2xl font-Inknut_Antiqua-Regular">
             Payment management
           </div>
         </div>
 
-        <div className="w-full max-w-[357px] h-auto min-h-[688px] mt-[267px] mx-auto bg-white rounded-[28px]">
-          <div className="w-full h-[146px] bg-[#d9d9d9] rounded-t-[28px]" />
+        {/* Additional Placeholder */}
+        <div className="bg-white rounded-2xl shadow-lg flex flex-col items-center w-full h-[550px]">
+          <div className="w-full bg-gray-300 py-4 rounded-t-lg h-[80px] text-2xl font-Inknut_Antiqua-Regular"></div>
         </div>
+      </div>
 
-        <div className="w-full h-[191px] bg-[#b5d1e1] rounded-b-[var(--shape-corner-extra-large)]">
-          <div className="w-full px-4 py-2 text-white text-[40px] font-normal">
-            Virtual TA
-          </div>
-          <img
-            className="w-[140px] h-[140px] mx-auto object-cover"
-            alt="Element"
-            src="https://c.animaapp.com/iiDcfYsY/img/2021781015212021@2x.png"
-          />
-        </div>
-
+      {/* Footer Icon */}
+      <div className="absolute bottom-4 right-4">
         <img
-          className="w-[88px] h-[77px] mx-auto object-cover"
-          alt="Images removebg"
+          className="w-12 h-12 md:w-16 md:h-16 cursor-pointer transform transition hover:scale-110"
+          alt="Back Icon"
           src="https://c.animaapp.com/iiDcfYsY/img/images-removebg-preview@2x.png"
+          onClick={() => handleNavigate("/second")}
         />
       </div>
     </div>

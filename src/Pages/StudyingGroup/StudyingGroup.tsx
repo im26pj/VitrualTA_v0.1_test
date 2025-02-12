@@ -1,67 +1,65 @@
-import React, { JSX,useState } from "react";
+import React, { JSX } from "react";
 import { useNavigate } from "react-router-dom";
 
 export const StudyingGroup = (): JSX.Element => {
-  const [showDropdown, setShowDropdown] = useState(false);
-        const navigate = useNavigate();
-        const handleDropdownToggle = () => {
-          setShowDropdown(!showDropdown);
-        };    
-        const handleNavigate = (path: string) => {
-          navigate(path);
-          setShowDropdown(false);
-        };
-  return (
-    <div className="bg-[#6683d2] flex flex-row justify-center w-full">
-      <div className="bg-[#6683d2] overflow-x-hidden w-[1440px] h-[1024px] relative">
-        <div className="absolute w-[753px] h-[833px] top-7 left-[-82px]">
-          <div className="absolute w-[218px] top-0 left-[116px] [font-family:'Kavoon',Helvetica] font-normal text-white text-[40px] tracking-[0] leading-[normal] whitespace-nowrap">
-            Virtual TA
-          </div>
+    const navigate = useNavigate();
 
-          <div className="w-[538px] h-[658px] top-[175px] left-[215px] bg-[#b5d1e1] absolute rounded-[var(--shape-corner-extra-large)]" />
+    const handleNavigate = (path: string) => {
+        navigate(path);
+    };
 
-          <div className="w-[470px] h-[79px] top-[716px] left-[250px] bg-[#d9d9d9cc] absolute rounded-[28px]" />
+    return (
+        <div className="relative w-full min-h-screen bg-[#6582d2] flex flex-col items-center justify-center p-4">
+            <style>
+                {`
+                @import url('https://fonts.googleapis.com/css2?family=Kavoon&display=swap');
+                .font-kavoon {
+                    font-family: 'Kavoon', cursive;
+                }
+                `}
+            </style>
+            <style>{`
+          @import url('https://fonts.googleapis.com/css2?family=Inknut+Antiqua:wght@400;700&display=swap');
+          .font-Inknut_Antiqua-Regular {
+            font-family: 'Inknut Antiqua', serif;
+          }
+        `}</style>
+            <div className="w-full bg-[#B5D1E1] py-6 px-8 flex items-center shadow-md fixed top-0 left-0 right-0 rounded-b-[28px]">
+                <div className="text-white text-3xl font-kavoon mr-auto cursor-pointer" onClick={() => handleNavigate("/choose")}>
+                    Virtual TA
+                </div>
+                <img
+                    className="w-16 h-16 object-cover rounded-full border-2 border-white ml-auto cursor-pointer"onClick={() => handleNavigate("/signin")}
+                    alt="Profile"
+                    src="https://c.animaapp.com/iiDcfYsY/img/2021781015212021@2x.png"
+                />
+            </div>
 
-          <div className="absolute top-[711px] left-[273px] [font-family:'Inknut_Antiqua',Helvetica] font-normal text-black text-[32px] tracking-[0] leading-[normal]">
-            Create a studying group
-          </div>
-
-          <img
-            className="absolute w-[538px] h-[414px] top-[297px] left-[215px] object-cover"
-            alt="Pixeltrue teaching"
-            src="https://c.animaapp.com/wQdx2d4c/img/pixeltrue-teaching-1.png"
-          />
-
-          <img
-            className="absolute w-[468px] h-[301px] top-[33px] left-0 object-cover"
-            alt="Gummy abacus"
-            src="https://c.animaapp.com/wQdx2d4c/img/gummy-abacus-1.png"
-          />
+            <div className="w-full max-w-6xl grid md:grid-cols-2 gap-8 mt-8">
+                {/* Left Section */}
+                <div className="relative bg-[#b5d1e1] rounded-3xl p-6 flex flex-col items-center cursor-pointer" onClick={() => handleNavigate("/choose")}>
+                    <img
+                        className="w-full max-w-md aspect-[4/3] object-cover"
+                        alt="Pixeltrue teaching"
+                        src="https://c.animaapp.com/QJxXI2vx/img/pixeltrue-teaching-1.png"
+                    />
+                    <button className="mt-6 w-full max-w-sm bg-gray-300 text-black text-lg font-semibold py-3 rounded-2xl font-Inknut_Antiqua-Regular">
+                        Create a studying group
+                    </button>
+                </div>
+                
+                {/* Right Section */}
+                <div className="relative bg-[#b5d1e1] rounded-3xl p-6 flex flex-col items-center cursor-pointer" onClick={() => handleNavigate("/choose")}>
+                    <img
+                        className="w-full max-w-md aspect-[4/3] object-cover"
+                        alt="Pixeltrue web"
+                        src="https://c.animaapp.com/QJxXI2vx/img/pixeltrue-web-development-1@2x.png"
+                    />
+                    <button className="mt-6 w-full max-w-sm bg-gray-300 text-black text-lg font-semibold py-3 rounded-2xl font-Inknut_Antiqua-Regular">
+                        Manage a studying group
+                    </button>
+                </div>
+            </div>
         </div>
-
-        <div className="absolute w-[817px] h-[969px] top-[203px] left-[751px]">
-          <div className="w-[538px] h-[658px] top-0 left-0 bg-[#b5d1e1] absolute rounded-[var(--shape-corner-extra-large)]" />
-
-          <div className="w-[470px] h-[79px] top-[541px] left-[34px] bg-[#d9d9d9cc] absolute rounded-[28px]" />
-
-          <div className="absolute top-[536px] left-[49px] [font-family:'Inknut_Antiqua',Helvetica] font-normal text-black text-[32px] tracking-[0] leading-[normal]">
-            Manage a studying group
-          </div>
-
-          <img
-            className="absolute w-[450px] h-[479px] top-[69px] left-11 object-cover"
-            alt="Pixeltrue web"
-            src="https://c.animaapp.com/wQdx2d4c/img/pixeltrue-web-development-1@2x.png"
-          />
-
-          <img
-            className="absolute w-[497px] h-[545px] top-[424px] left-80 object-cover"
-            alt="Gummy calculator"
-            src="https://c.animaapp.com/wQdx2d4c/img/gummy-calculator-1@2x.png"
-          />
-        </div>
-      </div>
-    </div>
-  );
+    );
 };
