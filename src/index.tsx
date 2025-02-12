@@ -10,6 +10,10 @@ import { StudyingGroup } from "./Pages/StudyingGroup/StudyingGroup";
 import { ChatRoom } from "./Pages/ChatRoom/ChatRoom";
 import { PersonalLearning } from "./Pages/PersonalLearning/personal";
 import { MemberArea } from "./Pages/MemberArea/member";
+import { SetVtuber } from "./Pages/SetVtuber/Setvtuber";
+import { SignUp } from "./Pages/Signup/Signup";
+import { ChatsRoom1 } from "./Pages/ChatsRoom1/ChatsRoom1";
+import { ResultsTracking } from "./Pages/Resultstracking/Resultstracking";
 createRoot(document.getElementById("app") as HTMLElement).render(
   <StrictMode>
     <div className="p-4">
