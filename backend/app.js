@@ -19,8 +19,9 @@ app.use(express.static(frontendPath));
 
 // ======== CORS 設定：支援 trycloudflare.com 與內網 ========
 const allowedOrigins = [
+  'http://localhost:5000',
   'http://localhost:3000',
-  'http://192.168.0.101:3000',
+   'http://192.168.0.101:3000',
   'http://192.168.0.100:3000'
 ];
 
