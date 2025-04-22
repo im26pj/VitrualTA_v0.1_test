@@ -1,0 +1,54 @@
+*解決不了不想管的bug*
+ 後端回傳的錯誤訊息在其他ip連線時無法正確顯示，因該和api_server.ts有關改了他之後才出現的bug。(有可能是CORS問題)
+
+
+*待驗證功能*
+cookie jwt 後端發行簽證資訊給前端存入cookie 
+
+密碼加密 (bcrypt):
+
+使用 bcrypt 進行密碼雜湊
+salt rounds 設為 10 (在 User model)
+每次雜湊都會產生不同結果
+Token 加密 (JWT):
+
+使用 HS512 演算法 (比預設的 HS256 更安全)
+Token 包含時間戳記防止重放攻擊
+移除 15 分鐘後自動過期
+驗證流程:
+
+檢查 Authorization header
+驗證 token 簽名
+移除 檢查過期時間
+將使用者資訊加入 request
+錯誤處理:
+
+統一的錯誤訊息格式
+不洩露敏感錯誤資訊
+詳細記錄錯誤但只回傳安全訊息
+
+
+*代辦事項*
+完成對話季錄存檔database
+
+
+*使用方式*
+react前端: 
+ 1.cd 進入frontend資料夾
+ vscode 執行 npm run dev
+
+ express後端(node.js)
+  1.開啟cmd cd進入backend資料夾
+  2.npm start
+
+ollama執行
+ 1.開啟cmd 執行ollama start (需要確認有llama3)
+ #使用ollama list可以檢查自己有哪些模型
+
+ Mongo database
+  1.需要去下載mogo db
+  2.創一個vtadb 的database
+  3.去前端網站註冊一個帳號就可以正常使用前端了
+
+啟動方式(其他人也可以連線的)
+cloudflared tunnel --url http://localhost:3000
