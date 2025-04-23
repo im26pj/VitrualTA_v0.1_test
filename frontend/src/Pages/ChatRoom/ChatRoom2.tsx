@@ -34,7 +34,7 @@ export const ChatRoom = (): JSX.Element => {
     if (!question.trim() || isLoading) return;
 
     const userMessage: Message = { role: "user", content: question };
-    setMessages(prev => [...prev, userMessage]);
+    setMessages(prev => [...prev, userMessage]); // 更新本地對話歷史
     setQuestion("");
     setIsLoading(true);
     setError(null);
@@ -43,11 +43,12 @@ export const ChatRoom = (): JSX.Element => {
     setMessages(prev => [...prev, assistantMessage]);
 
     try {
+      // 發送請求到後端，並建立 SSE 連線
       await fetchSSEStream(
         '/api/chat',
-        { conversationHistory: [...messages, userMessage] },
+        { conversationHistory: [...messages, userMessage] }, // 傳遞對話歷史
         (content) => {
-          assistantMessage.content += content;
+          assistantMessage.content += content; // 實時更新助理的回應
           setMessages(prev => [
             ...prev.slice(0, -1),
             { ...assistantMessage }

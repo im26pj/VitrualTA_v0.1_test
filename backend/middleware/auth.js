@@ -22,7 +22,7 @@ const verifyToken = async (req, res, next) => {
     }
 
     // 將解碼後的資料加入 request
-    req.user = decoded;
+    req.user = decoded; // 包含 id 和 account
     next();
   } catch (err) {
     console.error('Token 驗證失敗:', err.message);

@@ -24,7 +24,7 @@ export const Signin = (): JSX.Element => {
   
       const response = await apiPost('/api/login', { account, password });
       if (response.success) {
-        setAuthToken(response.token);
+        setAuthToken(response.token); // 存儲 JWT token 到 cookie
         setMessage('success:登入成功！');
         setTimeout(() => {
           handleNavigate("/second");

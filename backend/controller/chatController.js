@@ -8,11 +8,12 @@ exports.chatWithOllama = async (req, res) => {
   }
 
   try {
-    // 設置 response header 支援流式輸出
+    // 設置 SSE 回應 Header
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
 
+    // 發送請求到外部聊天模型
     const response = await axios.post(
       'http://localhost:11434/api/chat',
       {
@@ -25,14 +26,14 @@ exports.chatWithOllama = async (req, res) => {
       }
     );
 
-    // 直接將 Ollama 的響應轉發給客戶端
+    // 監聽外部模型的回應，並逐步發送給前端
     response.data.on('data', (chunk) => {
       try {
         const lines = chunk.toString().split('\n').filter(Boolean);
         for (const line of lines) {
           const json = JSON.parse(line);
           if (json.message?.content) {
-            // 發送 SSE 格式的數據
+            // 使用對應的 res 物件將數據發送給前端
             res.write(`data: ${JSON.stringify({ content: json.message.content })}\n\n`);
           }
         }

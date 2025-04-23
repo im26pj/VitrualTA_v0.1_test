@@ -1,5 +1,9 @@
+const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const bcrypt = require('bcrypt');
+
+const JWT_SECRET = 'your_jwt_secret_key'; // Replace with a secure key
+const JWT_EXPIRATION = '15m'; // Token expiration time
 
 //登入邏輯
 exports.login = async (req, res) => {
@@ -14,15 +18,22 @@ exports.login = async (req, res) => {
       return res.status(401).json({ success: false, message: '帳號或密碼錯誤' });    
     }
 
-    //檢查密碼是否與加密後數值一致
+    // 檢查密碼是否正確
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       console.log(`登入失敗：帳號 ${account} 密碼錯誤`);
       return res.status(401).json({ success: false, message: '帳號或密碼錯誤' });
     }
 
+    // 簽發 JWT
+    const token = jwt.sign(
+      { id: user._id, account: user.account },
+      JWT_SECRET,
+      { algorithm: 'HS512', expiresIn: JWT_EXPIRATION }
+    );
+
     console.log(`使用者 ${account} 登入成功`);
-    return res.status(200).json({ success: true });
+    return res.status(200).json({ success: true, token });
   } catch (err) {   
     console.log('登入錯誤:', err.message);
     return res.status(500).json({ success: false, message: '伺服器錯誤', error: err.message });

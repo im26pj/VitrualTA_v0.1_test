@@ -1,20 +1,36 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import Cookies from 'js-cookie';
+import * as jwtDecode from 'jwt-decode';
 
 export const setAuthToken = (token: string) => {
-  localStorage.setItem('token', token);
+  Cookies.set('token', token, { expires: 1 }); // 存儲 JWT token 到 cookie，有效期 1 天
 };
 
 export const getAuthToken = () => {
-  return localStorage.getItem('token');
+  return Cookies.get('token'); // 從 cookie 獲取 JWT token
 };
 
 export const clearAuthToken = () => {
-  localStorage.removeItem('token');
+  Cookies.remove('token'); // 從 cookie 移除 JWT token
 };
 
 export const isAuthenticated = () => {
+  const token = Cookies.get('token');
+  console.log('JWT Token:', token);
   return !!getAuthToken();
+};
+
+export const getDecodedToken = () => {
+  const token = getAuthToken();
+  if (!token) return null;
+
+  try {
+    return jwtDecode(token); // 解析 JWT 並返回內容
+  } catch (err) {
+    console.error('無法解析 JWT:', err);
+    return null;
+  }
 };
 
 // Hook for protected routes - simplified version
