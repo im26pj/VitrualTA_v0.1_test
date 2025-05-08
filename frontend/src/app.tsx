@@ -18,6 +18,7 @@ import { Test } from "./Pages/Test/Test2";
 import { Report } from "./Pages/Report/Report2";
 import { Payment } from "./Pages/Payment/Payment2";
 import { CPassword } from "./Pages/CPassword/CPassword2";
+import { Graph} from "./Pages/Graph/Graph";
 
 // Protected route wrapper component
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -41,7 +42,7 @@ export const App = () => {
         <Route path="/signup" element={<PublicRoute><SignUp /></PublicRoute>} />
         <Route path="/choose2" element={<PublicRoute><Choose /></PublicRoute>} />
         <Route path="/chatsroom12" element={<PublicRoute><ChatsRoom1 /></PublicRoute>} />
-
+        <Route path="/graph" element={<PublicRoute><Graph /></PublicRoute>} />
         {/* Protected routes */}
         <Route path="/second" element={<ProtectedRoute><Second /></ProtectedRoute>} />
         <Route path="/studying-group" element={<ProtectedRoute><StudyingGroup /></ProtectedRoute>} />
