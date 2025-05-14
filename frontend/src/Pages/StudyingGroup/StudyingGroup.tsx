@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { clearAuthToken } from "../../utils/auth";
 
 const GroupCard = ({ name, progress, onMove, onDelete, onClick }) => {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -60,12 +61,18 @@ export const StudyingGroup = () => {
 
   const handleDropdownToggle = () => setShowDropdown(!showDropdown);
 
+  const handleSignOut = () => {
+    clearAuthToken();
+    navigate('/signin');
+  };
+
   const menuItems = [
     { label: "Account Management", path: "/member-area" },
     { label: "Learning System", path: "/chatroom" },
     { label: "Group Studying", path: "/studying-group" },
     { label: "Learning Outcomes Tracking", path: "/outcomes-tracking" },
     { label: "Setting Vtuber", path: "/setvtuber" },
+    { label: "Sign Out", onClick: handleSignOut, className: "text-red-600" }
   ];
 
   const handleNavigate = (path) => {
@@ -101,21 +108,68 @@ export const StudyingGroup = () => {
   };
 
   return (
-    <div className="bg-[#6683d2] flex flex-col items-center w-full min-h-screen px-4 md:px-8">
+    <div className="bg-[#6683d2] flex flex-col items-center w-full h-screen overflow-y-auto">
       <style>
         {`
           @import url('https://fonts.googleapis.com/css2?family=Kavoon&display=swap');
           .font-kavoon { font-family: 'Kavoon', cursive; }
           @import url('https://fonts.googleapis.com/css2?family=Inknut+Antiqua:wght@400;700&display=swap');
           .font-Inknut_Antiqua-Regular { font-family: 'Inknut Antiqua', serif; }
+
+          /* Mobile scrollbar styles */
+          @media (max-width: 768px) {
+            ::-webkit-scrollbar {
+              width: 0;
+              background: transparent;
+            }
+
+            ::-webkit-scrollbar-thumb {
+              background: rgba(255, 255, 255, 0.3);
+              border-radius: 5px;
+            }
+
+            ::-webkit-scrollbar-thumb:hover {
+              background: rgba(255, 255, 255, 0.5);
+            }
+
+            /* Show scrollbar while scrolling */
+            ::-webkit-scrollbar-thumb:active {
+              width: 8px;
+            }
+
+            * {
+              scrollbar-width: thin;
+              scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
+            }
+          }
+
+          /* Desktop scrollbar styles */
+          @media (min-width: 769px) {
+            ::-webkit-scrollbar {
+              width: 10px;
+            }
+            
+            ::-webkit-scrollbar-track {
+              background: transparent;
+            }
+            
+            ::-webkit-scrollbar-thumb {
+              background: rgba(255, 255, 255, 0.3);
+              border-radius: 5px;
+            }
+            
+            ::-webkit-scrollbar-thumb:hover {
+              background: rgba(255, 255, 255, 0.5);
+            }
+          }
         `}
       </style>
 
       {/* Header */}
       <div className="w-full relative z-10">
         <div className="w-full bg-[#B5D1E1] py-6 px-8 flex items-center shadow-md fixed top-0 left-0 right-0 rounded-b-[28px]">
-          <div className="text-white text-3xl md:text-4xl font-kavoon cursor-pointer" onClick={() => handleNavigate("/choose2")}>Virtual TA</div>
-          <div className="mx-6 flex gap-4">
+          <div className="text-white text-3xl md:text-4xl font-kavoon cursor-pointer" onClick={() => handleNavigate("/second")}>Virtual TA</div>
+          <div className="mx-6 hidden md:flex gap-4">
             <button className="bg-[#E3E3E3] px-4 py-2 rounded-lg font-Inknut_Antiqua-Regular" onClick={handleAddGroup}>Add Group</button>
             <button className="bg-[#E3E3E3] px-4 py-2 rounded-lg font-Inknut_Antiqua-Regular" onClick={handleCreateGroup}>Create Group</button>
           </div>
@@ -134,8 +188,8 @@ export const StudyingGroup = () => {
                     {menuItems.map((item, i) => (
                       <li
                         key={i}
-                        className="px-6 py-3 text-black hover:bg-gray-400 cursor-pointer text-center font-Inknut_Antiqua-Regular"
-                        onClick={() => handleNavigate(item.path)}
+                        className={`px-6 py-3 text-black hover:bg-gray-400 cursor-pointer text-center font-Inknut_Antiqua-Regular ${item.className || ""}`}
+                        onClick={() => item.onClick ? item.onClick() : handleNavigate(item.path)}
                       >
                         {item.label}
                       </li>
@@ -148,7 +202,13 @@ export const StudyingGroup = () => {
         </div>
       </div>
 
-      <div className="pt-40 w-full max-w-4xl grid grid-cols-2 md:grid-cols-4 gap-6">
+      {/* Mobile buttons */}
+      <div className="md:hidden fixed top-[100px] left-0 right-0 z-10 flex justify-center gap-4 bg-[#B5D1E1] py-4 px-8 rounded-b-[28px]">
+        <button className="bg-[#E3E3E3] px-4 py-2 rounded-lg font-Inknut_Antiqua-Regular" onClick={handleAddGroup}>Add Group</button>
+        <button className="bg-[#E3E3E3] px-4 py-2 rounded-lg font-Inknut_Antiqua-Regular" onClick={handleCreateGroup}>Create Group</button>
+      </div>
+
+      <div className="pt-52 md:pt-40 w-full max-w-6xl grid grid-cols-2 md:grid-cols-4 gap-6 justify-items-center mx-auto">
         {groups.map((group, index) => (
           <GroupCard
             key={index}

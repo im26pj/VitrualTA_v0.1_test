@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { clearAuthToken } from "../../utils/auth";
 
 export const GroupPage = () => {
   const { groupName } = useParams();
@@ -14,12 +15,18 @@ export const GroupPage = () => {
     setShowDropdown(!showDropdown);
   };
 
+  const handleSignOut = () => {
+    clearAuthToken();
+    navigate('/signin');
+  };
+
   const menuItems = [
     { label: "Account Management", path: "/member-area" },
     { label: "Learning System", path: "/chatroom" },
     { label: "Group Studying", path: "/studying-group" },
     { label: "Learning Outcomes Tracking", path: "/outcomes-tracking" },
     { label: "Setting Vtuber", path: "/setvtuber" },
+    { label: "Sign Out", onClick: handleSignOut, className: "text-red-600" }
   ];
 
   const handleNavigate = (path) => {
@@ -54,8 +61,8 @@ export const GroupPage = () => {
                 {menuItems.map((item, i) => (
                   <li
                     key={i}
-                    className="px-6 py-3 text-black hover:bg-gray-400 cursor-pointer text-center font-Inknut_Antiqua-Regular"
-                    onClick={() => handleNavigate(item.path)}
+                    className={`px-6 py-3 text-black hover:bg-gray-400 cursor-pointer text-center font-Inknut_Antiqua-Regular ${item.className || ''}`}
+                    onClick={() => item.onClick ? item.onClick() : handleNavigate(item.path)}
                   >
                     {item.label}
                   </li>

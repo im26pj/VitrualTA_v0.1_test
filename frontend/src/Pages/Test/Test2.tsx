@@ -1,5 +1,6 @@
 import React, { JSX, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { clearAuthToken } from "../../utils/auth";
 
 export const Test = (): JSX.Element => {
   const navigate = useNavigate();
@@ -12,6 +13,11 @@ export const Test = (): JSX.Element => {
   const handleNavigate = (path: string) => {
     navigate(path);
     setShowDropdown(false); // 點選後關閉選單
+  };
+
+  const handleSignOut = () => {
+    clearAuthToken();
+    navigate('/signin');
   };
 
   return (
@@ -34,7 +40,7 @@ export const Test = (): JSX.Element => {
       <div className="w-full bg-[#B5D1E1] py-6 px-8 flex items-center shadow-md fixed top-0 left-0 right-0 rounded-b-[28px]">
         <div
           className="text-white text-3xl md:text-4xl font-kavoon cursor-pointer"
-          onClick={() => handleNavigate("/choose2")}
+          onClick={() => handleNavigate("/outcomes-tracking")}
         >
           Virtual TA
         </div>
@@ -59,11 +65,16 @@ export const Test = (): JSX.Element => {
               { label: "Group Studying", path: "/studying-group" },
               { label: "Learning Outcomes Tracking", path: "/outcomes-tracking" },
               { label: "Setting Vtuber", path: "/setvtuber" },
+              { 
+                label: "Sign Out", 
+                onClick: handleSignOut,
+                className: "text-red-600"
+              },
             ].map((item, index) => (
               <li
                 key={index}
-                className="px-6 py-3 text-black hover:bg-gray-400 cursor-pointer text-center font-inknut"
-                onClick={() => handleNavigate(item.path)}
+                className={`px-6 py-3 text-black hover:bg-gray-400 cursor-pointer text-center font-inknut ${item.className || ''}`}
+                onClick={() => item.onClick ? item.onClick() : handleNavigate(item.path)}
               >
                 {item.label}
               </li>

@@ -34,7 +34,7 @@ export const Report = (): JSX.Element => {
       <div className="w-full bg-[#B5D1E1] py-6 px-8 flex items-center shadow-md fixed top-0 left-0 right-0 rounded-b-[28px]">
         <div
           className="text-white text-3xl md:text-4xl font-kavoon cursor-pointer"
-          onClick={() => handleNavigate("/choose2")}
+          onClick={() => handleNavigate("/outcomes-tracking")}
         >
           Virtual TA
         </div>
