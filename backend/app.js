@@ -8,19 +8,22 @@ var mongoose = require('mongoose');
 var indexRouter = require('./routes/index');
 var usersRouter = require('./routes/users');
 var apiRouter = require('./routes/api');
+var imageRoutes = require('./routes/imageRoutes');
 var app = express();
 
 // ======== 加入靜態前端檔案支援 ========
-const frontendPath = path.join(__dirname, '../frontend/dist');
-app.use(express.static(frontendPath));
+//const frontendPath = path.join(__dirname, '../frontend/dist');
+//app.use(express.static(frontendPath));
 // =====================================
 
 // ======== CORS 設定：支援 trycloudflare.com 與內網 ========
 const allowedOrigins = [
   'http://localhost:5000',
   'http://localhost:3000',
-   'http://192.168.0.101:3000',
-  'http://192.168.0.100:3000'
+  'http://134.208.97.85:5000',
+  'http://134.208.97.85:3000',
+  'http://127.0.0.1:5000',
+  'http://127.0.0.1:3000'
 ];
 
 app.use(cors({
@@ -51,6 +54,13 @@ app.use(express.urlencoded({ extended: false }));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/pict', express.static(path.join(__dirname, 'public/pict')));
 
+// 在 CORS 設定之後，路由設定之前加入以下日誌中間件
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+  console.log('Headers:', req.headers);
+  next();
+});
+
 // 掛載 api 路由
 app.use('/api', apiRouter);
 app.use('/users', usersRouter);
@@ -80,5 +90,21 @@ app.use(function(err, req, res, next) {
 mongoose.connect('mongodb://localhost:27017/vtadb')
   .then(() => console.log('MongoDB connected'))
   .catch(err => console.error('MongoDB connect error:', err));
+
+// ======== WebSocket 服務器設置 ========
+const server = app.listen(3000, () => {
+  console.log('Server running on port 3000');
+});
+
+const WebSocket = require('ws');
+const wss = new WebSocket.Server({ server });
+
+wss.on('connection', (ws) => {
+  console.log('New WebSocket connection');
+  
+  ws.on('message', (message) => {
+    console.log('Received:', message);
+  });
+});
 
 module.exports = app;

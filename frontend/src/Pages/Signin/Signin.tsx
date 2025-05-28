@@ -99,7 +99,7 @@ export const Signin = (): JSX.Element => {
           <img
             className="mx-auto w-50 lg:w-[500px] h-auto"
             alt="Learning culture"
-            src="https://c.animaapp.com/7g5KY5M2/img/learning-culture-vark-learning-styles.png"
+            src="..\..\..\..\public\pic\learning-culture-vark-learning-styles.png"
           />
         </div>
 
@@ -153,7 +153,7 @@ export const Signin = (): JSX.Element => {
             <img
               className="w-full h-full"
               alt="Gummy bedroom"
-              src="https://c.animaapp.com/7g5KY5M2/img/gummy-bedroom-1.png"
+              src="..\..\..\..\public\pic\gummy-bedroom1.png"
             />
           </div>
         </div>

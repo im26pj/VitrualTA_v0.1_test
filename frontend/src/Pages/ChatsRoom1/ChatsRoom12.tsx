@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { fetchSSEStream } from "../../../api_servers";
-
+import { v4 as uuidv4 } from "uuid";
+//訪客版
 interface Message {
   role: "user" | "assistant";
   content: string;
@@ -13,7 +14,9 @@ export const ChatsRoom1 = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isAtBottom, setIsAtBottom] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const chatContainerRef = useRef<HTMLDivElement | null>(null);
 
   const handleNavigate = (path: string) => {
     navigate(path);
@@ -32,9 +35,16 @@ export const ChatsRoom1 = () => {
     setMessages((prev) => [...prev, assistantMessage]);
 
     try {
+      const visitorId = localStorage.getItem('visitor_id') || `visitor-${uuidv4()}`;
+      localStorage.setItem('visitor_id', visitorId);
+
       await fetchSSEStream(
         "/api/chat",
-        { conversationHistory: [...messages, userMessage] },
+        { 
+          conversationHistory: [...messages, userMessage],
+          isVisitor: true,
+          chat_id: visitorId
+        },
         (content) => {
           assistantMessage.content += content;
           setMessages((prev) => [
@@ -53,9 +63,36 @@ export const ChatsRoom1 = () => {
     }
   };
 
+  const checkIfAtBottom = () => {
+    const container = chatContainerRef.current;
+    if (container) {
+      const threshold = 100;
+      const isBottom = 
+        container.scrollHeight - container.scrollTop - container.clientHeight < threshold;
+      setIsAtBottom(isBottom);
+    }
+  };
+
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    if (isAtBottom) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages, isAtBottom]);
+
+  // 更新發送按鈕和圖片樣式
+  const sendButtonStyle = `flex-shrink-0 transition-all duration-200 ${
+    isLoading 
+      ? 'opacity-50 cursor-not-allowed' 
+      : !question.trim() 
+        ? 'opacity-30 cursor-not-allowed' 
+        : 'hover:opacity-80 cursor-pointer'
+  }`;
+
+  const sendButtonImageStyle = `w-7 h-7 ${
+    isLoading || !question.trim() 
+      ? 'opacity-50' 
+      : 'hover:opacity-80'
+  } rotate-90`;
 
   return (
     <div className="bg-[#6683d2] flex justify-center w-full min-h-screen">
@@ -86,38 +123,38 @@ export const ChatsRoom1 = () => {
         {/* Chat Box */}
         <div className="w-[95%] md:w-[900px] bg-white rounded-3xl shadow-lg mt-32 md:mt-24 flex flex-col fixed top-0 bottom-0 mb-4">
           <div
-            className="flex-1 overflow-y-auto p-8 md:p-12"
-            style={{ height: "calc(100vh - 280px)" }}
+            className="flex-1 overflow-y-auto mb-4"
+            ref={chatContainerRef}
+            onScroll={checkIfAtBottom}
+            style={{ height: "calc(100% - 120px)" }}
           >
             {messages.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center">
                 <img
                   className="w-[60%] md:w-[80%] max-w-[350px] h-auto mb-6"
                   alt="Pixeltrue data"
-                  src="https://c.animaapp.com/fB6Gojr5/img/pixeltrue-data-analysis-1-1@2x.png"
+                  src="..\..\..\..\public\pic\pixeltrue-data-analysis-1-1@2x.png"
                 />
                 <p className="text-lg md:text-4xl text-black font-semibold text-center font-Inknut_Antiqua-Regular">
                   What can I do for you?
                 </p>
               </div>
             ) : (
-              <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-4 py-4 px-2">
                 {messages.map((msg, idx) => (
                   <div
                     key={idx}
-                    className={`max-w-[80%] p-4 rounded-2xl ${
-                      msg.role === "user"
-                        ? "bg-[#D1E8FF] self-end text-right mr-2"
-                        : "bg-[#F3F3F3] self-start text-left ml-2"
-                    }`}
+                    className={`max-w-[80%] p-4 rounded-2xl shadow-sm
+                      ${msg.role === "user"
+                        ? "bg-[#D1E8FF] self-end text-right mr-2 border border-[#B5D1E1]"
+                        : "bg-[#F3F3F3] self-start text-left ml-2 border border-gray-200"
+                      }`}
                   >
                     <p className="text-base md:text-lg font-Inknut_Antiqua-Regular break-words">
                       {msg.content}
-                      {msg.role === "assistant" &&
-                        isLoading &&
-                        idx === messages.length - 1 && (
-                          <span className="inline-block animate-pulse">▋</span>
-                        )}
+                      {msg.role === "assistant" && isLoading && idx === messages.length - 1 && (
+                        <span className="inline-block animate-pulse">▋</span>
+                      )}
                     </p>
                   </div>
                 ))}
@@ -159,27 +196,27 @@ export const ChatsRoom1 = () => {
                 <input
                   type="text"
                   className="ml-2 flex-1 bg-transparent focus:outline-none text-lg"
-                  placeholder={isLoading ? "Please wait..." : "Type your message..."}
+                  placeholder={isLoading ? "Model is responding..." : "Type your message..."}
                   value={question}
                   onChange={(e) => setQuestion(e.target.value)}
-                  disabled={isLoading}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
+                    if (e.key === "Enter" && !e.shiftKey && !isLoading && question.trim()) {
                       e.preventDefault();
                       handleSendMessage();
                     }
                   }}
                 />
                 <button
-                  onClick={handleSendMessage}
-                  disabled={isLoading || !question.trim()}
-                  className={`ml-2 ${
-                    isLoading ? "opacity-50 cursor-not-allowed" : "cursor-pointer"
-                  }`}
+                  onClick={() => {
+                    if (!isLoading && question.trim()) {
+                      handleSendMessage();
+                    }
+                  }}
+                  className={sendButtonStyle}
                 >
                   <img
-                    className="w-6 h-6 transform rotate-90"
-                    src="https://c.animaapp.com/ffsYqFjp/img/polygon-3-2.svg"
+                    className={sendButtonImageStyle}
+                    src="..\..\..\..\public\pic\polygon-3-2.svg"
                     alt="Send"
                   />
                 </button>
@@ -193,27 +230,27 @@ export const ChatsRoom1 = () => {
                 <input
                   type="text"
                   className="ml-2 flex-1 bg-transparent focus:outline-none text-xl"
-                  placeholder={isLoading ? "Please wait..." : "Type your message..."}
+                  placeholder={isLoading ? "Model is responding..." : "Type your message..."}
                   value={question}
                   onChange={(e) => setQuestion(e.target.value)}
-                  disabled={isLoading}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
+                    if (e.key === "Enter" && !e.shiftKey && !isLoading && question.trim()) {
                       e.preventDefault();
                       handleSendMessage();
                     }
                   }}
                 />
                 <button
-                  onClick={handleSendMessage}
-                  disabled={isLoading || !question.trim()}
-                  className={`ml-4 ${
-                    isLoading ? "opacity-50 cursor-not-allowed" : "cursor-pointer"
-                  }`}
+                  onClick={() => {
+                    if (!isLoading && question.trim()) {
+                      handleSendMessage();
+                    }
+                  }}
+                  className={sendButtonStyle}
                 >
                   <img
-                    className="w-8 h-8 transform rotate-90"
-                    src="https://c.animaapp.com/ffsYqFjp/img/polygon-3-2.svg"
+                    className={sendButtonImageStyle}
+                    src="..\..\..\..\public\pic\polygon-3-2.svg"
                     alt="Send"
                   />
                 </button>

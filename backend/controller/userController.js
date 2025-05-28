@@ -1,9 +1,7 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const bcrypt = require('bcrypt');
-
-const JWT_SECRET = 'your_jwt_secret_key'; // Replace with a secure key
-const JWT_EXPIRATION = '15m'; // Token expiration time
+const { JWT_SECRET, JWT_EXPIRATION } = require('../config/jwtConfig');
 
 //登入邏輯
 exports.login = async (req, res) => {
@@ -29,7 +27,10 @@ exports.login = async (req, res) => {
     const token = jwt.sign(
       { id: user._id, account: user.account },
       JWT_SECRET,
-      { algorithm: 'HS512', expiresIn: JWT_EXPIRATION }
+      { 
+        algorithm: 'HS256',  // 改用較普遍的 HS256
+        expiresIn: JWT_EXPIRATION 
+      }
     );
 
     console.log(`使用者 ${account} 登入成功`);

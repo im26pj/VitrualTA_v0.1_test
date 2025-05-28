@@ -4,11 +4,27 @@ import Cookies from 'js-cookie';
 import { jwtDecode } from 'jwt-decode';
 
 export const setAuthToken = (token: string) => {
-  Cookies.set('token', token, { expires: 1 }); // 存儲 JWT token 到 cookie，有效期 1 天
+  console.log('==== Setting Auth Token ====');
+  console.log('Raw Token:', token);
+  
+  try {
+    const decodedToken = jwtDecode(token);
+    console.log('Decoded Token Data:', decodedToken);
+  } catch (err) {
+    console.error('Token Decode Error:', err);
+  }
+  
+  Cookies.set('token', token, { expires: 1 });
+  console.log('Token saved to cookies with 1 day expiration');
+  console.log('========================');
 };
 
 export const getAuthToken = () => {
-  return Cookies.get('token'); // 從 cookie 獲取 JWT token
+  const token = Cookies.get('token');
+  console.log('==== Getting Auth Token ====');
+  console.log('Retrieved Token:', token);
+  console.log('========================');
+  return token;
 };
 
 export const clearAuthToken = () => {

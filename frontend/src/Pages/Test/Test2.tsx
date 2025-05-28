@@ -49,7 +49,7 @@ export const Test = (): JSX.Element => {
           <img
             className="w-[70px] h-[70px] object-cover cursor-pointer"
             alt="User Avatar"
-            src="https://c.animaapp.com/iiDcfYsY/img/2021781015212021@2x.png"
+            src="..\..\..\..\public\pic\2021781015212021@2x.png"
             onClick={handleDropdownToggle}
           />
         </div>

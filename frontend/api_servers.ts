@@ -13,16 +13,17 @@ interface ApiError {
     const isLocal = window.location.hostname === 'localhost';
   
     const localServers = [
-      'http://localhost:3000',
-      'http://192.168.0.4:3000',
-      'http://192.168.0.101:3000',
+      'http://localhost:3000',     // Express API server
+      'ws://localhost:3000',       // WebSocket server
+      'http://127.0.0.1:3000',
+      'http://localhost:5000',     // Frontend dev server
+      'http://134.208.97.85:3000'  // Remote server if needed
     ];
   
     const remoteServers = [
-      //'http://192.168.0.101:3000',
-      //'http://192.168.0.100:3000',
       currentHost.startsWith('http') ? currentHost : '',
-    ].filter(Boolean); // 過濾掉空字串
+      currentHost.replace('http', 'ws')  // WebSocket URL
+    ].filter(Boolean);
   
     return isLocal ? localServers : remoteServers;
   };

@@ -1,6 +1,9 @@
-*解決不了不想管的bug*
- 後端回傳的錯誤訊息在其他ip連線時無法正確顯示，因該和api_server.ts有關改了他之後才出現的bug。(有可能是CORS問題)
+*解決不了不想管的bug*???
+ 後端回傳的錯誤訊息在其他ip連線時無法正確顯示，應該和api_server.ts有關改了他之後才出現的bug。(有可能是CORS問題)
 
+chatroom->ChatRoom2.tsx(登入的頁面)
+
+Chatroom1->ChatRoom12.tsx(沒登入的頁面)
 
 *待驗證功能*
 cookie jwt 後端發行簽證資訊給前端存入cookie 
@@ -15,6 +18,10 @@ Token 加密 (JWT):
 使用 HS512 演算法 (比預設的 HS256 更安全)
 Token 包含時間戳記防止重放攻擊
 移除 15 分鐘後自動過期
+
+
+
+
 驗證流程:
 
 檢查 Authorization header
@@ -26,20 +33,25 @@ Token 包含時間戳記防止重放攻擊
 統一的錯誤訊息格式
 不洩露敏感錯誤資訊
 詳細記錄錯誤但只回傳安全訊息
-
+  
 
 *代辦事項*
-完成對話季錄存檔database
+完成對話紀錄存檔database
 
 
 *使用方式*
 react前端: 
- 1.cd 進入frontend資料夾
- vscode 執行 npm run dev
+Terminal -> new Terminal -> 下面找 + 的符號旁邊的v符號，選command prompt
+ 1.cd frontend
+ 2.npm run dev
 
  express後端(node.js)
-  1.開啟cmd cd進入backend資料夾
-  2.npm start
+ 在系統環境中(非vscode)打開專案資料夾backend的地方 上方搜尋欄打上cmd
+  npm start
+
+重啟方式
+在cmd 用ctrl+c 2次 ，在打上npm start
+
 
 ollama執行
  1.開啟cmd 執行ollama start (需要確認有llama3)
@@ -52,3 +64,5 @@ ollama執行
 
 啟動方式(其他人也可以連線的)
 cloudflared tunnel --url http://localhost:3000
+
+chatroom_withoutlogin頁面 -> vtuber按鈕看要移除還是改成按下後提示登入才可以使用
