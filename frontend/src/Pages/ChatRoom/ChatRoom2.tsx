@@ -1,17 +1,51 @@
 import React, { JSX, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { clearAuthToken, getAuthToken } from "../../utils/auth";
-import { fetchSSEStream, apiGet } from "../../../api_servers";
+import { fetchSSEStream, apiGet, uploadImage, getImageUrl, deleteImage } from "../../../api_servers";
 //有登入頁面
+interface MessageImage {
+  fileId: string;
+  filename: string;
+}
+
 interface Message {
   role: "user" | "assistant";
   content: string;
+  img_id?: string[];
+  images?: {
+    fileId: string;
+    filename: string;
+    base64?: string;
+  }[];
 }
 
 interface ChatHistory {
   chat_id: string;
   title: string;
   updated_at: string;
+}
+
+interface UploadingImage {
+  id: string;
+  file: File;
+  preview?: string;
+  name: string;
+}
+
+// Add new interfaces
+interface PendingImage {
+  fileId: string;
+  filename: string;
+  base64: string;
+}
+
+interface UploadImageResponse {
+  success: boolean;
+  images: Array<{
+    fileId: string;
+    filename: string;
+    base64: string;
+  }>;
 }
 
 export const ChatRoom = (): JSX.Element => {
@@ -28,6 +62,16 @@ export const ChatRoom = (): JSX.Element => {
   const [chatHistories, setChatHistories] = useState<ChatHistory[]>([]);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const chatContainerRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [uploadingImages, setUploadingImages] = useState<UploadingImage[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+
+  // 新增預覽圖片狀態
+  const [previewImage, setPreviewImage] = useState<UploadingImage | null>(null);
+
+  // 新增待上傳圖片狀態
+  const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
 
   const handleDropdownToggle = () => setShowDropdown(!showDropdown);
 
@@ -57,7 +101,7 @@ export const ChatRoom = (): JSX.Element => {
       try {
         // 改用 apiGet 方法
         const data = await apiGet('/api/chat/histories');
-        console.log('API Response:', data); // 新增 debug 日誌
+        //console.log('API Response:', data); // 新增 debug 日誌
         
         if (data.success) {
           setChatHistories(data.histories);
@@ -82,17 +126,17 @@ export const ChatRoom = (): JSX.Element => {
 
   const selectChat = async (chatId: string) => {
     try {
-      setCurrentChatId(chatId);
-      localStorage.setItem('current_chat_id', chatId);
-      
       const data = await apiGet(`/api/chat/${chatId}`);
-      console.log('Selected chat data:', data); // debug log
       
       if (data.success && data.chat_history) {
-        // 確保轉換格式正確
         const formattedMessages: Message[] = data.chat_history.map((msg: any) => ({
           role: msg.role,
-          content: msg.content
+          content: msg.content,
+          img_id: msg.img_id,  // 這裡有 img_id
+          images: msg.img_id ? msg.img_id.map((id: string) => ({  // 修改這裡
+            fileId: id,
+            filename: `Image ${id}`  // 或從其他地方獲取文件名
+          })) : undefined
         }));
         setMessages(formattedMessages);
       } else {
@@ -104,47 +148,151 @@ export const ChatRoom = (): JSX.Element => {
     }
   };
 
-  const handleSendMessage = async () => {
-    if (!question.trim() || isLoading) return;
+  // 修改檔案上傳處理函數
+  const handleFileUpload = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setIsUploading(true);
 
-    const userMessage: Message = { role: "user", content: question };
-    setMessages((prev) => [...prev, userMessage]);
+    try {
+      const formData = new FormData();
+      const fileArray = Array.from(files);
+      
+      fileArray.forEach(file => {
+        formData.append('images', file);
+      });
+      
+      if (currentChatId) {
+        formData.append('chat_id', currentChatId);
+      }
+
+      const result = await uploadImage(formData);
+
+      if (result.success && result.images?.length > 0) {
+        const newImages = result.images.map((img, index) => ({
+          id: img.fileId,
+          file: fileArray[index],
+          name: fileArray[index].name,
+          preview: URL.createObjectURL(fileArray[index])
+        }));
+
+        setUploadingImages(prev => [...prev, ...newImages]);
+      }
+    } catch (error) {
+      console.error('上傳失敗:', error);
+      setError('圖片上傳失敗');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  // Add function to handle image deletion
+  const handleDeletePendingImage = async (fileId: string) => {
+    try {
+      await deleteImage(fileId);
+      setPendingImages(prev => prev.filter(img => img.fileId !== fileId));
+      setPreviewImage(null);
+    } catch (err) {
+      setError('刪除圖片失敗');
+    }
+  };
+
+  // 新增刪除圖片處理函數
+  const handleDeleteImage = async (imageId: string) => {
+    try {
+      await deleteImage(imageId);
+      setUploadingImages(prev => prev.filter(img => img.id !== imageId));
+      // 清理 URL.createObjectURL 創建的 URL
+      const image = uploadingImages.find(img => img.id === imageId);
+      if (image?.preview) {
+        URL.revokeObjectURL(image.preview);
+      }
+    } catch (error) {
+      console.error('刪除圖片失敗:', error);
+      setError('刪除圖片失敗');
+    }
+  };
+
+  const handleSendMessage = async () => {
+    if (!question.trim() || isLoading || isUploading) return;
+
+    // 保存當前的圖片 IDs，因為我們馬上要清除 uploadingImages
+    const currentImageIds = uploadingImages.map(img => img.id);
+
+    const userMessage: Message = {
+      role: "user",
+      content: question,
+      img_id: currentImageIds,
+      images: uploadingImages.map(img => ({
+        fileId: img.id,
+        filename: img.name
+      }))
+    };
+
+    // 在發送前先清除輸入和預覽
+    setMessages(prev => [...prev, userMessage]);
     setQuestion("");
     setIsLoading(true);
     setError(null);
 
-    let assistantMessage: Message = { role: "assistant", content: "" };
-    setMessages((prev) => [...prev, assistantMessage]);
+    // 清理所有預覽圖片
+    uploadingImages.forEach(img => {
+      if (img.preview) {
+        URL.revokeObjectURL(img.preview);
+      }
+    });
+    // 清空上傳圖片列表
+    setUploadingImages([]);
 
     try {
-      const token = getAuthToken();
-      if (!token) {
-        throw new Error('請先登入');
-      }
+      const messageData = {
+        conversationHistory: [...messages, userMessage],
+        chat_id: currentChatId,
+        isVisitor: false,
+        isNewChat: messages.length === 0,
+        img_id: currentImageIds // 使用保存的圖片 IDs
+      };
 
       await fetchSSEStream(
         "/api/chat",
-        { 
-          conversationHistory: [...messages, userMessage],
-          isVisitor: false,
-          chat_id: currentChatId,
-          isNewChat: messages.length === 0
-        },
+        messageData,
         (content) => {
-          assistantMessage.content += content;
-          setMessages((prev) => [
-            ...prev.slice(0, -1),
-            { ...assistantMessage },
-          ]);
+          setMessages(prev => {
+            const lastMessage = prev[prev.length - 1];
+            if (lastMessage?.role === "assistant") {
+              return [...prev.slice(0, -1), { ...lastMessage, content: lastMessage.content + content }];
+            } else {
+              return [...prev, { role: "assistant", content }];
+            }
+          });
         },
-        (error) => {
-          setError(error);
-        }
+        (error) => setError(error)
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "發送訊息失敗");
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragging(false);
+  };
+
+  // 修改 handleDrop 函數
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const files = Array.from(e.dataTransfer.files).filter(
+      file => file.type.startsWith('image/')
+    );
+    
+    if (files.length > 0) {
+      await handleFileUpload(e.dataTransfer.files);
     }
   };
 
@@ -168,11 +316,9 @@ export const ChatRoom = (): JSX.Element => {
 
   // 更新發送按鈕樣式
   const sendButtonStyle = `flex-shrink-0 transition-all duration-200 ${
-    isLoading 
+    isLoading || isUploading || !question.trim()
       ? 'opacity-50 cursor-not-allowed' 
-      : !question.trim() 
-        ? 'opacity-30 cursor-not-allowed' 
-        : 'hover:opacity-80 cursor-pointer'
+      : 'hover:opacity-80 cursor-pointer'
   }`;
 
   // 更新按鈕圖片樣式
@@ -181,6 +327,55 @@ export const ChatRoom = (): JSX.Element => {
       ? 'opacity-50' 
       : 'hover:opacity-80'
   } rotate-90`;
+
+  // 修改消息渲染部分
+  const renderMessage = (msg: Message, idx: number) => (
+    <div className={`flex ${msg.role === "assistant" ? "justify-start" : "justify-end"} mb-4`}>
+      <div className={`max-w-[80%] ${
+        msg.role === "assistant" 
+          ? "bg-gray-100 rounded-r-lg rounded-bl-lg ml-2" 
+          : "bg-blue-100 rounded-l-lg rounded-br-lg mr-2"
+      } p-4`}>
+        {/* 圖片區塊 */}
+        {msg.images && msg.images.length > 0 && (
+          <div className="mb-3 space-y-2">
+            {msg.images.map((img, imgIdx) => (
+              <div key={imgIdx} className="relative">
+                <img
+                  src={getImageUrl(img.fileId)}
+                  alt={img.filename}
+                  className="max-w-full rounded-lg"
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    target.onerror = null;
+                    target.src = "..\\..\\..\\..\\public\\pic\\error-image.png";
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+        
+        {/* 文字內容區塊 */}
+        <div className="text-base md:text-lg font-Inknut_Antiqua-Regular break-words">
+          {msg.content}
+          {msg.role === "assistant" && isLoading && idx === messages.length - 1 && (
+            <span className="inline-block animate-pulse">▋</span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+  useEffect(() => {
+    return () => {
+      uploadingImages.forEach(img => {
+        if (img.preview) {
+          URL.revokeObjectURL(img.preview);
+        }
+      });
+    };
+  }, [uploadingImages]);
 
   return (
     <div className="bg-[#6683d2] flex flex-col items-center w-full min-h-screen px-4 md:px-8">
@@ -332,6 +527,9 @@ export const ChatRoom = (): JSX.Element => {
                 className="flex-1 overflow-y-auto mb-4" 
                 ref={chatContainerRef}
                 onScroll={checkIfAtBottom}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
                 style={{ height: "calc(100% - 120px)" }}
               >
                 {messages.length === 0 && !showVtuberImage ? (
@@ -347,23 +545,7 @@ export const ChatRoom = (): JSX.Element => {
                   </div>
                 ) : (
                   <div className="flex flex-col gap-4 py-4 px-2">
-                    {messages.map((msg, idx) => (
-                      <div
-                        key={idx}
-                        className={`max-w-[80%] p-4 rounded-2xl shadow-sm
-                          ${msg.role === "user"
-                            ? "bg-[#D1E8FF] self-end text-right mr-2 border border-[#B5D1E1]"
-                            : "bg-[#F3F3F3] self-start text-left ml-2 border border-gray-200"
-                          }`}
-                      >
-                        <p className="text-base md:text-lg font-Inknut_Antiqua-Regular break-words">
-                          {msg.content}
-                          {msg.role === "assistant" && isLoading && idx === messages.length - 1 && (
-                            <span className="inline-block animate-pulse">▋</span>
-                          )}
-                        </p>
-                      </div>
-                    ))}
+                    {messages.map((msg, idx) => renderMessage(msg, idx))}
                     {error && (
                       <div className="bg-red-100 text-red-600 p-4 rounded-2xl self-center">
                         {error}
@@ -396,39 +578,78 @@ export const ChatRoom = (): JSX.Element => {
                   </button>
                 </div>
 
-                <div className="w-full bg-[#d9d9d9] h-14 rounded-2xl flex items-center px-6 
-                  border border-gray-300 focus-within:border-[#B5D1E1] focus-within:ring-2 
-                  focus-within:ring-[#B5D1E1] focus-within:ring-opacity-50 transition-all duration-200">
-                  <div className="flex-1 flex items-center">
-                    <span className="text-gray-700 text-2xl">#</span>
+                <div className="flex flex-col gap-2">
+                  <div className={`w-full bg-[#d9d9d9] h-14 rounded-2xl flex items-center px-6 
+                    border border-gray-300 focus-within:border-[#B5D1E1] focus-within:ring-2 
+                    focus-within:ring-[#B5D1E1] focus-within:ring-opacity-50 transition-all duration-200
+                    ${isDragging ? 'border-blue-500 bg-blue-50' : ''}`}
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                  >
                     <input
-                      type="text"
-                      value={question}
-                      onChange={(e) => setQuestion(e.target.value)}
-                      className="ml-2 w-full bg-transparent focus:outline-none text-lg"
-                      placeholder={isLoading ? "Model is responding..." : "Type your message..."}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && !e.shiftKey && question.trim() && !isLoading) {
-                          e.preventDefault();
+                      type="file"
+                      ref={fileInputRef}
+                      className="hidden"
+                      accept="image/*"
+                      onChange={(e) => handleFileUpload(e.target.files)}
+                    />
+                    <div className="flex items-center flex-1">
+                      <button
+                        onClick={() => fileInputRef.current?.click()}
+                        className="text-gray-700 text-2xl hover:text-gray-900 cursor-pointer px-2"
+                      >
+                        #
+                      </button>
+                      <input
+                        type="text"
+                        value={question}
+                        onChange={(e) => setQuestion(e.target.value)}
+                        className="ml-2 w-full bg-transparent focus:outline-none text-lg"
+                        placeholder={isLoading ? "Model is responding..." : "Type your message or drag & drop an image..."}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !e.shiftKey && question.trim() && !isLoading) {
+                            e.preventDefault();
+                            handleSendMessage();
+                          }
+                        }}
+                      />
+                    </div>
+                    <button
+                      onClick={() => {
+                        if (!isLoading && question.trim()) {
                           handleSendMessage();
                         }
                       }}
-                    />
+                      className={sendButtonStyle}
+                    >
+                      <img
+                        className={sendButtonImageStyle}
+                        src="..\..\..\..\public\pic\polygon-3-2.svg"
+                        alt="Send"
+                      />
+                    </button>
                   </div>
-                  <button
-                    onClick={() => {
-                      if (!isLoading && question.trim()) {
-                        handleSendMessage();
-                      }
-                    }}
-                    className={sendButtonStyle}
-                  >
-                    <img
-                      className={sendButtonImageStyle}
-                      src="..\..\..\..\public\pic\polygon-3-2.svg"
-                      alt="Send"
-                    />
-                  </button>
+
+                  {/* 新增圖片預覽區域 */}
+                  {uploadingImages.map((image) => (
+                    <div key={image.id} className="flex items-center gap-2 px-2 py-1 bg-gray-100 rounded-lg">
+                      {image.preview && (
+                        <img 
+                          src={image.preview}
+                          alt={image.name}
+                          className="w-6 h-6 object-contain"
+                        />
+                      )}
+                      <span className="text-sm text-gray-600">{image.name}</span>
+                      <button
+                        onClick={() => handleDeleteImage(image.id)}
+                        className="ml-auto text-gray-500 hover:text-gray-700"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>

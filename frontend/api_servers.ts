@@ -11,20 +11,17 @@ interface ApiError {
   const getBaseServers = (): string[] => {
     const currentHost = window.location.origin;
     const isLocal = window.location.hostname === 'localhost';
-  
+
     const localServers = [
       'http://localhost:3000',     // Express API server
-      'ws://localhost:3000',       // WebSocket server
-      'http://127.0.0.1:3000',
-      'http://localhost:5000',     // Frontend dev server
-      'http://134.208.97.85:3000'  // Remote server if needed
+      'http://127.0.0.1:3000',    // 移除 WebSocket URL
+      'http://localhost:5000'      // Frontend dev server
     ];
-  
+
     const remoteServers = [
-      currentHost.startsWith('http') ? currentHost : '',
-      currentHost.replace('http', 'ws')  // WebSocket URL
+      currentHost.startsWith('http') ? currentHost : ''
     ].filter(Boolean);
-  
+
     return isLocal ? localServers : remoteServers;
   };
   
@@ -220,3 +217,85 @@ interface ApiError {
       method: 'DELETE',
       headers: { Accept: 'application/json' },
     });
+  
+  interface UploadImageResponse {
+    success: boolean;
+    images: Array<{
+      fileId: string;
+      filename: string;
+      base64: string;
+    }>;
+  }
+  
+  export const uploadImage = async (formData: FormData): Promise<UploadImageResponse> => {
+    const serverList = getBaseServers();
+    const token = getAuthToken();
+    let lastError: string | null = null;
+
+    for (const base of serverList) {
+      if (base.startsWith('ws')) continue; // 跳過 WebSocket URL
+    
+      const url = `${base}/api/upload/image`;
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`
+          },
+          body: formData
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          lastError = errorData?.message || `伺服器錯誤：${response.status}`;
+          console.error(`上傳失敗：${lastError}`);
+          continue;
+        }
+
+        const data = await response.json();
+        return data;
+
+      } catch (err: any) {
+        lastError = err.message;
+        console.error(`上傳錯誤：${lastError}`);
+        continue;
+      }
+    }
+
+    throw new Error(lastError || '圖片上傳失敗');
+  };
+  
+  export const getImageUrl = (fileId: string): string => {
+    const baseServer = getBaseServers()[0]; // 使用第一個可用的伺服器
+    return `${baseServer}/api/images/${fileId}`;
+  };
+  
+  // 新增的介面
+  interface UploadedImage {
+    _id: string;
+    fileId: string;
+    filename: string;
+    base64: string;
+  }
+  
+  // 新增的函式
+  export const deleteImage = async (fileId: string): Promise<any> => {
+    return await fetchWithFallback(`/api/images/${fileId}`, {
+      method: 'DELETE'
+    });
+  };
+  
+  export const getImage = async (fileId: string): Promise<Blob> => {
+    const response = await fetchWithFallback(`/api/images/${fileId}`, {
+      method: 'GET',
+      headers: {
+        'Accept': 'image/*'
+      }
+    });
+
+    if (response instanceof Response) {
+      return await response.blob();
+    }
+    
+    throw new Error('獲取圖片失敗');
+  };

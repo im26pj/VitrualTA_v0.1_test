@@ -36,14 +36,16 @@ export const ChatsRoom1 = () => {
 
     try {
       const visitorId = localStorage.getItem('visitor_id') || `visitor-${uuidv4()}`;
-      localStorage.setItem('visitor_id', visitorId);
-
-      await fetchSSEStream(
+      localStorage.setItem('visitor_id', visitorId);      await fetchSSEStream(
         "/api/chat",
         { 
-          conversationHistory: [...messages, userMessage],
+          conversationHistory: [...messages, userMessage].map(msg => ({
+            role: msg.role,
+            content: msg.content
+          })),
+          chat_id: visitorId,
           isVisitor: true,
-          chat_id: visitorId
+          isNewChat: messages.length === 0
         },
         (content) => {
           assistantMessage.content += content;

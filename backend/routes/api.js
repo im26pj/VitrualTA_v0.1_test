@@ -5,8 +5,12 @@ const chatController = require('../controller/chatController');
 
 router.post('/login', usercontroller.login); // 登入
 router.post('/signup', usercontroller.signup); // 註冊
-router.post('/chat', chatController.chatWithOllama); // 聊天
+router.post('/chat', chatController.chatWithOllama); // 舊的聊天路由
+router.post('/chat/stream', chatController.chatWithOllama); // 新的串流聊天路由
 router.get('/chat/histories', chatController.getChatHistories);
 router.get('/chat/:chatId', chatController.getChatById);
+router.post('/upload/image', chatController.uploadImage);
+router.delete('/images/:fileId', chatController.deleteImage);
+router.get('/images/:fileId', chatController.getImage); // 添加圖片路由
 
 module.exports = router;
