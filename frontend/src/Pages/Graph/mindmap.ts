@@ -10,25 +10,72 @@ export class MindMap {
   private width: number;
   private height: number;
 
-  constructor(svgElement: SVGSVGElement, width = 1000, height = 600) {
+  constructor(svgElement: SVGSVGElement, width = 500, height = 350) { // 修改預設值
     this.svg = d3.select(svgElement);
     this.width = width;
     this.height = height;
+    
+    // 調整縮放範圍以適應較小的畫布
+    const zoom = d3.zoom()
+      .scaleExtent([0.5, 2]) // 調整縮放範圍
+      .on('zoom', (event) => {
+        this.svg.select('g').attr('transform', event.transform);
+      });
+    
+    this.svg.call(zoom);
   }
 
   public render(data: TreeNode): void {
     this.svg.selectAll('*').remove();
+    
+    const zoomContainer = this.svg.append('g');
+    
+    const zoom = d3.zoom()
+      .scaleExtent([0.2, 1.5])
+      .wheelDelta((event) => {
+        return -event.deltaY * 0.0015;
+      })
+      .on('zoom', (event) => {
+        zoomContainer.attr('transform', event.transform);
+      });
+
+    this.svg.call(zoom);
     
     const root = d3.hierarchy<TreeNode>(data);
     const maxDepth = root.height;
     const horizontalSpacing = (this.width) / (maxDepth);
     
     const treeLayout = d3.tree<TreeNode>()
-      .size([this.height, horizontalSpacing * maxDepth]);
+      .size([this.height * 0.9, horizontalSpacing * maxDepth]);
     
     const treeData = treeLayout(root);
 
-    const g = this.svg.append('g')
+    // 計算所有節點和連線的邊界
+    const bounds = this.calculateBounds(treeData, this.width / 2);
+    
+    // 計算需要的縮放比例
+    const padding = 40;
+    const scale = Math.min(
+      (this.width - padding * 2) / (bounds.maxX - bounds.minX),
+      (this.height - padding * 2) / (bounds.maxY - bounds.minY),
+      1 // 確保不會放大超過原始大小
+    );
+
+    // 計算中心點，用於置中顯示
+    const centerX = (bounds.maxX + bounds.minX) / 2;
+    const centerY = (bounds.maxY + bounds.minY) / 2;
+
+    // 應用初始變換
+    const initialTransform = d3.zoomIdentity
+      .translate(
+        this.width / 2 - centerX * scale,
+        this.height / 2 - centerY * scale
+      )
+      .scale(scale);
+
+    this.svg.call(zoom.transform, initialTransform);
+
+    const g = zoomContainer.append('g')
       .attr('transform', `translate(${this.width / 2},0)`);
 
     // 添加根節點的圓形
@@ -154,6 +201,42 @@ export class MindMap {
         text.remove();
         group.append(() => this);
       });
+  }
+
+  // 新增：計算所有節點和連線的邊界
+  private calculateBounds(treeData: d3.HierarchyPointNode<TreeNode>, baseX: number) {
+    let minX = Infinity, maxX = -Infinity;
+    let minY = Infinity, maxY = -Infinity;
+
+    // 遍歷所有節點計算邊界
+    treeData.descendants().forEach(d => {
+      const x = baseX + this.getXPosition(d);
+      const y = d.x;
+
+      // 考慮節點大小
+      const nodeWidth = 120; // 估計節點寬度
+      const nodeHeight = 40; // 估計節點高度
+
+      minX = Math.min(minX, x - nodeWidth/2);
+      maxX = Math.max(maxX, x + nodeWidth/2);
+      minY = Math.min(minY, y - nodeHeight/2);
+      maxY = Math.max(maxY, y + nodeHeight/2);
+
+      // 如果是葉節點，考慮文字標籤的空間
+      if (!d.children) {
+        const labelPadding = 20;
+        maxX = Math.max(maxX, x + nodeWidth/2 + labelPadding);
+      }
+    });
+
+    // 為了確保有足夠的邊距，稍微擴大邊界
+    const margin = 20;
+    return {
+      minX: minX - margin,
+      maxX: maxX + margin,
+      minY: minY - margin,
+      maxY: maxY + margin
+    };
   }
 
   // 修改：計算節點 X 座標，確保子節點跟隨父節點方向

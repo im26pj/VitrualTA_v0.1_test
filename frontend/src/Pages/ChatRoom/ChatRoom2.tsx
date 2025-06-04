@@ -1,7 +1,9 @@
 import React, { JSX, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { clearAuthToken, getAuthToken } from "../../utils/auth";
-import { fetchSSEStream, apiGet, uploadImage, getImageUrl, deleteImage } from "../../../api_servers";
+import { fetchSSEStream, apiGet, uploadImage, getImageUrl, deleteImage , generateGraph } from "../../../api_servers";
+import { SystemContextDiagram } from '../Graph/SCD';
+import { MindMap } from '../Graph/mindmap';
 //有登入頁面
 interface MessageImage {
   fileId: string;
@@ -9,7 +11,7 @@ interface MessageImage {
 }
 
 interface Message {
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "system";
   content: string;
   img_id?: string[];
   images?: {
@@ -17,6 +19,7 @@ interface Message {
     filename: string;
     base64?: string;
   }[];
+  graph_json?: any; // 新增：用於存儲圖表數據
 }
 
 interface ChatHistory {
@@ -132,12 +135,14 @@ export const ChatRoom = (): JSX.Element => {
         const formattedMessages: Message[] = data.chat_history.map((msg: any) => ({
           role: msg.role,
           content: msg.content,
-          img_id: msg.img_id,  // 這裡有 img_id
-          images: msg.img_id ? msg.img_id.map((id: string) => ({  // 修改這裡
+          img_id: msg.img_id,
+          images: msg.img_id ? msg.img_id.map((id: string) => ({
             fileId: id,
-            filename: `Image ${id}`  // 或從其他地方獲取文件名
-          })) : undefined
+            filename: `Image ${id}`
+          })) : undefined,
+          graph_json: msg.graph_json // 新增：圖表數據
         }));
+        
         setMessages(formattedMessages);
       } else {
         throw new Error(data.message || '無法載入對話');
@@ -215,6 +220,7 @@ export const ChatRoom = (): JSX.Element => {
   const handleSendMessage = async () => {
     if (!question.trim() || isLoading || isUploading) return;
 
+    let prompt_graph = "";
     // 保存當前的圖片 IDs，因為我們馬上要清除 uploadingImages
     const currentImageIds = uploadingImages.map(img => img.id);
 
@@ -256,6 +262,7 @@ export const ChatRoom = (): JSX.Element => {
         "/api/chat",
         messageData,
         (content) => {
+          prompt_graph += content;
           setMessages(prev => {
             const lastMessage = prev[prev.length - 1];
             if (lastMessage?.role === "assistant") {
@@ -272,6 +279,86 @@ export const ChatRoom = (): JSX.Element => {
     } finally {
       setIsLoading(false);
     }
+
+     /*test area */
+    if(question.includes("生成") || question.toUpperCase().includes("GENERATE") || question.includes("圖") || question.toUpperCase().includes("PICTURE") || question.toUpperCase().includes("IMAGE")) 
+    { 
+      console.log("進入要求生成圖片邏輯處理");
+      console.log("content:",prompt_graph);
+      //列舉圖處理
+      //mindmap
+      if(question.toUpperCase().includes("MINDMAP") ||  question.includes("心智")) {
+        console.log("進入要求 MINDMAP"); 
+        const prompt_scd = `
+          請根據以下描述建立一個階層式的節點結構，回傳格式為**嵌套的 JSON**，代表一個樹狀結構。每個節點都包含 "name"，如有子節點則包含 "children" 欄位，並遵守以下格式：
+
+          範例格式：
+          {"name": "中心主題","children": [{"name": "子節點 1"},{"name": "子節點 2","children": [{"name": "子節點 2-1"},{"name": "子節點 2-2","children": [{"name": "子節點2-2-1"}]}]}]}
+          不要加入任何說明、註解或文字，內文使用繁體中文，僅回傳符合上述格式的 JSON 結構。
+          描述：
+          ${prompt_graph}
+        `;
+        console.log("生成的 prompt_scd:", prompt_scd);
+
+        try {
+          let responseContent = "";
+          
+          await generateGraph(
+            {
+              isVisitor: false,
+              chat_id: currentChatId || undefined,
+              content: prompt_scd
+            },
+            (content) => {
+              responseContent += content;
+            },
+            (error) => {
+              console.error("發生錯誤:", error);
+              setError(error);
+            }
+          );
+
+          try {
+            const graphData = JSON.parse(responseContent);
+            console.log("完整的圖表數據:", graphData);
+            
+            // 將圖表數據添加到最後一條消息中
+            setMessages(prev => {
+              const lastMessage = prev[prev.length - 1];
+              if (lastMessage?.role === "assistant") {
+                return [...prev.slice(0, -1), { 
+                  ...lastMessage,
+                  graph_json: graphData 
+                }];
+              }
+              return prev;
+            });
+          } catch (parseError) {
+            console.error('JSON 解析失敗:', parseError);
+            setError('生成的圖表格式無效');
+          }
+
+        } catch (error) {
+          console.error('API 調用失敗:', error);
+          setError('API 調用失敗');
+        }
+
+
+      }
+      else if(question.toUpperCase().includes("SCD") || question.toUpperCase().includes("SYSTEM CONTEXT DIAGRAM") || question.toUpperCase().includes("SYSTEMCONTEXTDIAGRAM") || question.includes("系統"))
+      {
+        console.log("進入要求 SCD"); 
+        const prompt_mindmap = "";
+
+      }
+      else
+      {
+      //非列舉圖請求處理
+      console.log("Step1 丟出請求到ollama擴展請求並翻譯成英文生成prompt");
+      console.log("Step2 呼叫Stable-Diffusion");
+      }
+    }
+
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -294,6 +381,49 @@ export const ChatRoom = (): JSX.Element => {
     if (files.length > 0) {
       await handleFileUpload(e.dataTransfer.files);
     }
+  };
+
+  // 修改 GraphRenderer 組件
+  const GraphRenderer: React.FC<{ data: any, mode: 'graph' | 'mindmap' }> = ({ data, mode }) => {
+    const svgRef = useRef<SVGSVGElement>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
+    const dimensions = { width: 600, height: 350 }; // 設定固定的畫布大小
+
+    useEffect(() => {
+      if (!svgRef.current || !data) return;
+
+      if (mode === 'mindmap') {
+        const mindmap = new MindMap(svgRef.current, dimensions.width, dimensions.height);
+        mindmap.render(data);
+      } else {
+        const scd = new SystemContextDiagram();
+        // 未來可以添加系統圖的渲染邏輯
+      }
+    }, [data, mode]);
+
+    return (
+      <div 
+        ref={containerRef} 
+        className="bg-white rounded-lg p-2 my-2"
+        style={{ 
+          width: `${dimensions.width}px`,
+          height: `${dimensions.height}px`,
+          margin: '0 auto',
+          overflow: 'hidden' // 防止內容溢出
+        }}
+      >
+        <svg
+          ref={svgRef}
+          width={dimensions.width}
+          height={dimensions.height}
+          className="rounded-lg"
+          style={{
+            display: 'block',
+            background: 'white'
+          }}
+        />
+      </div>
+    );
   };
 
   // 新增檢查是否在底部的函數
@@ -330,8 +460,11 @@ export const ChatRoom = (): JSX.Element => {
 
   // 修改消息渲染部分
   const renderMessage = (msg: Message, idx: number) => (
-    <div className={`flex ${msg.role === "assistant" ? "justify-start" : "justify-end"} mb-4`}>
-      <div className={`max-w-[80%] ${
+    <div 
+      key={`message-${idx}`}
+      className={`flex ${msg.role === "assistant" ? "justify-start" : "justify-end"} mb-4`}
+    >
+      <div className={`max-w-[95%] md:max-w-[80%] ${
         msg.role === "assistant" 
           ? "bg-gray-100 rounded-r-lg rounded-bl-lg ml-2" 
           : "bg-blue-100 rounded-l-lg rounded-br-lg mr-2"
@@ -353,6 +486,16 @@ export const ChatRoom = (): JSX.Element => {
                 />
               </div>
             ))}
+          </div>
+        )}
+        
+        {/* 圖表區塊 - 調整樣式 */}
+        {msg.graph_json && (
+          <div className="w-full">
+            <GraphRenderer 
+              data={msg.graph_json} 
+              mode={msg.graph_json.nodes ? 'graph' : 'mindmap'} 
+            />
           </div>
         )}
         

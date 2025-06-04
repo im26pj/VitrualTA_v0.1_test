@@ -84,7 +84,7 @@ exports.chatWithOllama = async (req, res) => {
             return {
               role: msg.role,
               content: msg.content,
-              images // 只用於 Ollama 請求，不儲存到資料庫
+              images // 直接傳遞 base64 字串陣列
             };
           } catch (error) {
             console.error('圖片處理錯誤:', error);
@@ -119,6 +119,7 @@ exports.chatWithOllama = async (req, res) => {
           images: processedHistory[processedHistory.length - 1]?.images
         }
       ],
+      keep_alive: "30m",
       stream: true
     };
 
@@ -148,10 +149,8 @@ exports.chatWithOllama = async (req, res) => {
         let chatDoc;
         if (isNewChat) {
           const cleanUserMessage = {
-            role: userMessage.role,
-            content: userMessage.content,
-            timestamp: userMessage.timestamp,
-            img_id: Array.isArray(userMessage.img_id) ? userMessage.img_id : []  // 只保留 img_id
+            ...userMessage,
+            images: undefined // 不儲存 base64 圖片
           };
           
           chatDoc = new Chat({
@@ -173,24 +172,20 @@ exports.chatWithOllama = async (req, res) => {
               updated_at: new Date()
             });
           }
+        }
 
-          // 添加新的對話記錄
+        // 添加新的對話記錄，但只保存 img_id
+        if (!isNewChat) {
           const cleanUserMessage = {
-            role: userMessage.role,
-            content: userMessage.content,
-            timestamp: userMessage.timestamp,
-            img_id: Array.isArray(userMessage.img_id) ? userMessage.img_id : []  // 只保留 img_id
+            ...userMessage,
+            images: undefined // 不儲存 base64 圖片
           };
-          
           chatDoc.chat_history.push(cleanUserMessage);
         }
         
-        // 添加 assistant 的回應
         chatDoc.chat_history.push({
-          role: 'assistant',
-          content: fullResponse,
-          timestamp: new Date(),
-          img_id: []  // assistant 回應沒有圖片
+          ...assistantMessage,
+          content: fullResponse
         });
         
         chatDoc.updated_at = new Date();
@@ -256,17 +251,49 @@ exports.getChatById = async (req, res) => {
     const token = req.headers.authorization?.split(' ')[1];
     const decoded = jwt.verify(token, JWT_SECRET);
     
-    const chat = await Chat.findOne({
-      userId: decoded.id,
-      chat_id: req.params.chatId
-    });
+    // 明確指定要返回 graph_json 字段
+    const chat = await Chat.findOne(
+      {
+        userId: decoded.id,
+        chat_id: req.params.chatId
+      },
+      {
+        'chat_history.role': 1,
+        'chat_history.content': 1,
+        'chat_history.img_id': 1,
+        'chat_history.graph_json': 1, // 確保包含 graph_json
+        'chat_history.timestamp': 1
+      }
+    );
     
     if (!chat) {
       return res.status(404).json({ success: false, message: '對話不存在' });
     }
+
+    // 檢查和轉換 graph_json（如果是字符串則解析為 JSON）
+    const formattedHistory = chat.chat_history.map(msg => {
+      const formattedMsg = {
+        role: msg.role,
+        content: msg.content,
+        img_id: msg.img_id || []
+      };
+
+      if (msg.graph_json) {
+        try {
+          formattedMsg.graph_json = typeof msg.graph_json === 'string' 
+            ? JSON.parse(msg.graph_json) 
+            : msg.graph_json;
+        } catch (e) {
+          console.error('graph_json 解析錯誤:', e);
+        }
+      }
+
+      return formattedMsg;
+    });
     
-    res.json({ success: true, chat_history: chat.chat_history });
+    res.json({ success: true, chat_history: formattedHistory });
   } catch (err) {
+    console.error('載入對話失敗:', err);
     res.status(500).json({ success: false, message: '載入對話失敗' });
   }
 };
@@ -491,3 +518,92 @@ exports.deleteImage = async (req, res) => {
 
 // 將 upload 中間件導出
 exports.upload = upload;
+
+// 在 chatController.js 中添加新的函數
+exports.generateGraph = async (req, res) => {
+  const { isVisitor, chat_id, content } = req.body;
+  const authHeader = req.headers.authorization;
+
+  try {
+    let userId;
+    if (!isVisitor) {
+      if (!authHeader?.startsWith('Bearer ')) {
+        return res.status(401).json({ success: false, message: '請先登入' });
+      }
+
+      const token = authHeader.split(' ')[1];
+      const decoded = jwt.verify(token, JWT_SECRET);
+      userId = decoded.id;
+    }
+
+    // SSE 設置
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    // 準備 Ollama 請求
+    const ollamaRequest = {
+      model: 'llama3.2-vision:11b',
+      messages: [
+        {
+          role: 'user',
+          content: content
+        }
+      ],
+      keep_alive: "30m",
+      stream: true
+    };
+
+    // 收集完整回應
+    let fullResponse = '';
+    const iterator = await ollama.chat(ollamaRequest);
+    
+    for await (const chunk of iterator) {
+      const chunkContent = chunk.message?.content ?? '';
+      fullResponse += chunkContent;
+      res.write(`data: ${JSON.stringify({ content: chunkContent })}\n\n`);
+    }
+
+    // 儲存到資料庫
+    if (!isVisitor) {
+      try {
+        let chatDoc = await Chat.findOne({ chat_id, userId });
+        
+        if (!chatDoc) {
+          chatDoc = new Chat({
+            userId,
+            chat_id,
+            title: 'Generated Graph',
+            chat_history: [],
+            updated_at: new Date()
+          });
+        }
+
+        chatDoc.chat_history.push({
+          role: 'assistant',
+          graph_json: fullResponse,
+          timestamp: new Date()
+        });
+
+        chatDoc.updated_at = new Date();
+        await chatDoc.save();
+      } catch (dbErr) {
+        console.error('儲存圖表失敗:', dbErr);
+        res.write(`data: ${JSON.stringify({ error: '儲存圖表失敗' })}\n\n`);
+      }
+    }
+
+    res.write('data: [DONE]\n\n');
+    res.end();
+
+  } catch (err) {
+    console.error('生成圖表錯誤:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: err.message });
+    } else {
+      res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
+      res.end();
+    }
+  }
+};

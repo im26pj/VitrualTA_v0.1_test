@@ -87,9 +87,47 @@ const FreeContextDiagram: React.FC = () => {
        .attr('height', height)
        .style('background', '#fff');
 
-    const mainContainer = svg.append('g').attr('class', 'main-container');
+    // 添加縮放容器
+    const zoomContainer = svg.append('g');
+    const mainContainer = zoomContainer.append('g').attr('class', 'main-container');
     const linkGroup = mainContainer.append('g').attr('class', 'links');
     const nodeGroup = mainContainer.append('g').attr('class', 'nodes');
+
+    // 計算邊界
+    const padding = 50;
+    const bounds = {
+      minX: d3.min(data.nodes, d => d.x - (d.width || 240) / 2) || 0,
+      maxX: d3.max(data.nodes, d => d.x + (d.width || 240) / 2) || width,
+      minY: d3.min(data.nodes, d => d.y - (d.height || 120) / 2) || 0,
+      maxY: d3.max(data.nodes, d => d.y + (d.height || 120) / 2) || height
+    };
+
+    // 計算縮放比例
+    const xScale = (width - padding * 2) / (bounds.maxX - bounds.minX);
+    const yScale = (height - padding * 2) / (bounds.maxY - bounds.minY);
+    const scale = Math.min(xScale, yScale, 1);
+
+    // 計算平移量，使內容居中
+    const translateX = (width - (bounds.maxX - bounds.minX) * scale) / 2 - bounds.minX * scale;
+    const translateY = (height - (bounds.maxY - bounds.minY) * scale) / 2 - bounds.minY * scale;
+
+    // 設置縮放行為
+    const zoom = d3.zoom()
+      .scaleExtent([0.2, 1.5]) // 修改縮放範圍
+      .wheelDelta((event) => {
+        // 調整滾輪靈敏度，讓縮放更平滑
+        return -event.deltaY * 0.0015;
+      })
+      .on('zoom', (event) => {
+        zoomContainer.attr('transform', event.transform);
+      });
+
+    svg.call(zoom);
+
+    // 初始化縮放和平移
+    svg.call(zoom.transform, d3.zoomIdentity
+      .translate(translateX, translateY)
+      .scale(scale));
 
     const defs = svg.append('defs');
     ['up', 'down'].forEach(direction => {
@@ -412,22 +450,36 @@ const FreeContextDiagram: React.FC = () => {
   );
 
   return (
-    <div className="flex flex-col items-center p-4 space-y-4">
-      <textarea
-        className="w-3/4 h-48 p-2 border border-gray-300 rounded"
-        placeholder="請貼上JSON內容 或點擊「生成測試資料」"
-        value={inputText}
-        onChange={(e) => setInputText(e.target.value)}
-      ></textarea>
+    <div className="flex flex-col items-center p-4" 
+         style={{ 
+           position: 'absolute',
+           left: 0,
+           right: 0,
+           top: 0,
+           bottom: 0,
+           overflowY: 'auto'
+         }}>
+      <div className="w-3/4 mb-8">
+        <textarea
+          className="w-full p-2 border border-gray-300 rounded"
+          style={{ height: '200px' }}
+          placeholder="請貼上JSON內容 或點擊「生成測試資料」"
+          value={inputText}
+          onChange={(e) => setInputText(e.target.value)}
+        ></textarea>
+      </div>
       <ControlButtons />
-      <div className="text-sm text-gray-500 mt-2">
+      <div className="text-sm text-gray-500 mt-2 mb-8">
         {selectedNode && <p>✓ 已選中方塊: {selectedNode.label}</p>}
         {selectedLink && <p>✓ 已選中連線: {selectedLink.label}</p>}
         <p>💡 提示：連線也可拖曳調整垂直高度</p>
       </div>
       <div
-        className="border-2 border-gray-300 rounded-lg bg-white shadow-md"
-        style={{ width: '1200px', height: '800px', margin: '0 auto' }}
+        className="border-2 border-gray-300 rounded-lg bg-white shadow-md flex-none"
+        style={{ 
+          width: '1200px', 
+          height: '800px'
+        }}
       >
         <svg 
           ref={svgRef} 

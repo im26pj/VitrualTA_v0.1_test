@@ -7,14 +7,17 @@ const chatHistorySchema = new mongoose.Schema({
     enum: ['user', 'assistant']
   },
   content: {
-    type: String,
-    required: true
+    type: String
+  },
+  graph_json: {
+    type: mongoose.Schema.Types.Mixed,  // 使用 Mixed 類型以支持存儲任何類型的數據
+    default: null
   },
   timestamp: {
     type: Date,
     default: Date.now
   },
-  img_id: [{  // 只保留 img_id 陣列
+  img_id: [{
     type: String
   }]
 });
