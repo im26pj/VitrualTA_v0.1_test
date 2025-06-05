@@ -9,11 +9,21 @@ export class MindMap {
   private svg: d3.Selection<SVGSVGElement, unknown, null, undefined>;
   private width: number;
   private height: number;
+  private verticalSpacing: number;
+  private deepLevelSpacing: number; // 新增：第三層以後的垂直間距
 
-  constructor(svgElement: SVGSVGElement, width = 500, height = 350) { // 修改預設值
+  constructor(
+    svgElement: SVGSVGElement, 
+    width = 600, 
+    height = 400,
+    verticalSpacing = 10,
+    deepLevelSpacing = 70 // 新增：設置默認值
+  ) {
     this.svg = d3.select(svgElement);
     this.width = width;
     this.height = height;
+    this.verticalSpacing = verticalSpacing;
+    this.deepLevelSpacing = deepLevelSpacing;
     
     // 調整縮放範圍以適應較小的畫布
     const zoom = d3.zoom()
@@ -46,7 +56,27 @@ export class MindMap {
     const horizontalSpacing = (this.width) / (maxDepth);
     
     const treeLayout = d3.tree<TreeNode>()
-      .size([this.height * 0.9, horizontalSpacing * maxDepth]);
+      .size([this.height * 1.5, horizontalSpacing * maxDepth])
+      .separation((a, b) => {
+        const depthA = this.getNodeDepth(a);
+        const depthB = this.getNodeDepth(b);
+        
+        // 第三層及以後的節點使用 deepLevelSpacing
+        if (depthA >= 2 && depthB >= 2) {
+          // 如果是同一個父節點的子節點，直接使用 deepLevelSpacing 值
+          if (a.parent === b.parent) {
+            return this.deepLevelSpacing / 30; // 調整除數使參數更有效
+          }
+          // 不同父節點的節點使用更大的間距
+          return this.deepLevelSpacing / 20;
+        }
+        
+        // 第一、二層使用固定間距
+        if (a.parent === b.parent) {
+          return 1;
+        }
+        return 2;
+      });
     
     const treeData = treeLayout(root);
 
@@ -160,47 +190,69 @@ export class MindMap {
       .attr('class', 'label')
       .text(d => d.data.name)
       .attr('x', d => {
+        // 獲取節點深度
+        let depth = 0;
+        let current = d;
+        while (current.parent) {
+          depth++;
+          current = current.parent;
+        }
+        
+        const x = this.getXPosition(d);
+        
+        // 第三層及以後的節點
+        if (depth >= 3) {
+          const isLeft = x < 0;
+          // 文字從線段終點開始，不需要額外偏移
+          return x;
+        }
+        
+        // 前兩層使用原始邏輯
         const parentX = this.getXPosition(d.parent);
-        const currentX = this.getXPosition(d);
-        // 調整文字位置，更靠近目標節點
+        const currentX = x;
         return (parentX * 0.3 + currentX * 0.7);
       })
       .attr('y', d => {
-        const parentY = d.parent!.x;
-        const currentY = d.x;
-        // 調整文字位置，更靠近目標節點
-        return ((parentY * 0.3 + currentY * 0.7)) - 10;
+        let depth = 0;
+        let current = d;
+        while (current.parent) {
+          depth++;
+          current = current.parent;
+        }
+        
+        if (depth >= 3) {
+          // 使用 deepLevelSpacing 來計算垂直偏移
+          return d.x + (this.deepLevelSpacing / 10);
+        } else {
+          // 第一、二層使用固定的 verticalSpacing
+          return d.x + (this.verticalSpacing / 2);
+        }
       })
-      .attr('text-anchor', 'middle')
+      .attr('text-anchor', d => {
+        if (!d.parent) return 'middle';
+        
+        // 獲取節點深度
+        let depth = 0;
+        let current = d;
+        while (current.parent) {
+          depth++;
+          current = current.parent;
+        }
+        
+        // 第三層及以後的節點
+        if (depth >= 3) {
+          const isLeft = this.getXPosition(d) < 0;
+          // 左側節點文字從終點開始，右側節點文字從終點結束
+          return isLeft ? 'start' : 'end';
+        }
+        
+        // 前兩層使用原始邏輯
+        const isLeft = this.getXPosition(d) < 0;
+        return isLeft ? 'end' : 'start';
+      })
       .attr('dominant-baseline', 'baseline')
       .attr('font-size', '14px')
-      .attr('fill', '#333')
-      .attr('background', 'white');
-
-    // 為文字添加白色背景以提高可讀性
-    g.selectAll('text.label')
-      .each(function() {
-        const text = d3.select(this);
-        const bbox = this.getBBox();
-        const padding = 4;
-        
-        // 創建一個新的 g 元素來包含背景和文字
-        const parent = d3.select(this.parentNode);
-        const group = parent.append('g');
-        
-        // 添加背景矩形
-        group.append('rect')
-          .attr('x', bbox.x - padding)
-          .attr('y', bbox.y - padding)
-          .attr('width', bbox.width + (padding * 2))
-          .attr('height', bbox.height + (padding * 2))
-          .attr('fill', 'white')
-          .attr('rx', 4);
-        
-        // 將文字移動到新的 group 中
-        text.remove();
-        group.append(() => this);
-      });
+      .attr('fill', '#333');
   }
 
   // 新增：計算所有節點和連線的邊界
@@ -269,15 +321,31 @@ export class MindMap {
   // 修改：計算文字 X 座標，配合新的節點位置邏輯
   private getTextXPosition(d: any): number {
     if (!d.parent) return 0;
-    const isLeft = this.getXPosition(d) < 0;
-    return isLeft ? -30 : 30;
+    
+    // 獲取節點深度
+    let depth = 0;
+    let current = d;
+    while (current.parent) {
+      depth++;
+      current = current.parent;
+    }
+    
+    // 如果深度小於3，使用原始邏輯
+    if (depth < 3) {
+      const isLeft = this.getXPosition(d) < 0;
+      return isLeft ? -30 : 30;
+    }
+    
+    // 第三層及以後的節點
+    const nodeX = this.getXPosition(d);
+    return nodeX; // 直接返回節點位置，文字對齊將由 text-anchor 控制
   }
 
   // 修改：決定文字對齊方式，配合新的節點位置邏輯
   private getTextAnchor(d: any): string {
     if (!d.parent) return 'middle';
     const isLeft = this.getXPosition(d) < 0;
-    return isLeft ? 'end' : 'start';
+    return isLeft ? 'start' : 'end';
   }
 
   private getNodeColor(depth: number): string {
@@ -313,5 +381,16 @@ export class MindMap {
         }
       ]
     };
+  }
+
+  // 新增：獲取節點深度的方法實現
+  private getNodeDepth(node: d3.HierarchyNode<any>): number {
+    let depth = 0;
+    let current = node;
+    while (current.parent) {
+      depth++;
+      current = current.parent;
+    }
+    return depth;
   }
 }

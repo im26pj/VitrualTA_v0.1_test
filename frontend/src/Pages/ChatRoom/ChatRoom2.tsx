@@ -387,13 +387,19 @@ export const ChatRoom = (): JSX.Element => {
   const GraphRenderer: React.FC<{ data: any, mode: 'graph' | 'mindmap' }> = ({ data, mode }) => {
     const svgRef = useRef<SVGSVGElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
-    const dimensions = { width: 600, height: 350 }; // 設定固定的畫布大小
+    const dimensions = { width: 600, height: 400 }; // 增加畫布大小
 
     useEffect(() => {
       if (!svgRef.current || !data) return;
 
       if (mode === 'mindmap') {
-        const mindmap = new MindMap(svgRef.current, dimensions.width, dimensions.height);
+        const mindmap = new MindMap(
+          svgRef.current,
+          600,    // 寬度
+          400,    // 高度
+          15,     // 一般垂直間距
+          80      // 第三層以後的垂直間距
+        );
         mindmap.render(data);
       } else {
         const scd = new SystemContextDiagram();
@@ -404,12 +410,12 @@ export const ChatRoom = (): JSX.Element => {
     return (
       <div 
         ref={containerRef} 
-        className="bg-white rounded-lg p-2 my-2"
+        className="bg-white rounded-lg p-4 my-4" // 增加內邊距
         style={{ 
           width: `${dimensions.width}px`,
           height: `${dimensions.height}px`,
           margin: '0 auto',
-          overflow: 'hidden' // 防止內容溢出
+          overflow: 'hidden'
         }}
       >
         <svg
