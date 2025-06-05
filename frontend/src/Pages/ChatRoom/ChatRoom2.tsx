@@ -1,9 +1,12 @@
-import React, { JSX, useEffect, useRef, useState } from "react";
+import React, { JSX, useEffect, useRef, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { clearAuthToken, getAuthToken } from "../../utils/auth";
 import { fetchSSEStream, apiGet, uploadImage, getImageUrl, deleteImage , generateGraph } from "../../../api_servers";
 import { SystemContextDiagram } from '../Graph/SCD';
 import { MindMap } from '../Graph/mindmap';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+
 //有登入頁面
 interface MessageImage {
   fileId: string;
@@ -65,6 +68,15 @@ interface GraphResponse {
     nodes?: any[];
     links?: any[];
   };
+}
+
+// 在檔案頂部添加此介面
+interface CodeComponentProps {
+  node?: any;
+  inline?: boolean;
+  className?: string;
+  children?: React.ReactNode;  // 修改為可選型別
+  props?: any;  // 添加這個來接收其他可能的屬性
 }
 
 export const ChatRoom = (): JSX.Element => {
@@ -145,20 +157,32 @@ export const ChatRoom = (): JSX.Element => {
 
   const selectChat = async (chatId: string) => {
     try {
+      setIsLoading(true);
       const data = await apiGet(`/api/chat/${chatId}`);
       
       if (data.success && data.chat_history) {
-        const formattedMessages: Message[] = data.chat_history.map((msg: any) => ({
-          role: msg.role,
-          content: msg.content,
-          img_id: msg.img_id,
-          images: msg.img_id ? msg.img_id.map((id: string) => ({
-            fileId: id,
-            filename: `Image ${id}`
-          })) : undefined,
-          graph_json: msg.graph_json // 新增：圖表數據
+        // 首先映射消息並設置基本屬性
+        const formattedMessages: Message[] = await Promise.all(data.chat_history.map(async (msg: any) => {
+          const formattedMsg: Message = {
+            role: msg.role,
+            content: msg.content,
+            img_id: msg.img_id,
+            graph_json: msg.graph_json
+          };
+          
+          // 如果有圖片ID，設置圖片資訊
+          if (msg.img_id && msg.img_id.length > 0) {
+            formattedMsg.images = msg.img_id.map((id: string) => ({
+              fileId: id,
+              filename: `圖片 ${id.substring(0, 8)}...`
+            }));
+          }
+          
+          return formattedMsg;
         }));
         
+        setCurrentChatId(chatId);
+        localStorage.setItem('current_chat_id', chatId);
         setMessages(formattedMessages);
       } else {
         throw new Error(data.message || '無法載入對話');
@@ -166,6 +190,8 @@ export const ChatRoom = (): JSX.Element => {
     } catch (err) {
       console.error('載入對話失敗:', err);
       setError(err instanceof Error ? err.message : '載入對話失敗');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -334,47 +360,131 @@ export const ChatRoom = (): JSX.Element => {
   const GraphRenderer: React.FC<{ data: any, mode: 'graph' | 'mindmap' }> = ({ data, mode }) => {
     const svgRef = useRef<SVGSVGElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
-    const dimensions = { width: 600, height: 400 }; // 增加畫布大小
+    // 設定基準尺寸
+    const defaultDimensions = { width: 800, height: 500 }; // 增大基準尺寸
+    // 使用 state 來追蹤實際尺寸
+    const [dimensions, setDimensions] = useState(defaultDimensions);
 
+    // 當容器大小變化時重新渲染圖表
+    const updateSize = useCallback(() => {
+      if (!containerRef.current) return;
+      
+      const parentWidth = containerRef.current.parentElement?.clientWidth || 0;
+      // 確保最小寬度為 600px
+      const actualWidth = Math.max(600, parentWidth - 40);
+      // 保持寬高比例
+      const aspectRatio = defaultDimensions.height / defaultDimensions.width;
+      const actualHeight = actualWidth * aspectRatio;
+
+      // 如果父容器足夠大，使用實際計算的尺寸；否則使用固定尺寸並允許滾動
+      if (parentWidth >= 640) { // 600 + 40
+        setDimensions({ width: actualWidth, height: actualHeight });
+      } else {
+        // 在小容器中使用固定尺寸
+        setDimensions({ width: 600, height: 400 });
+      }
+    }, []);
+
+    // 初始化時和容器大小變化時重新計算尺寸
+    useEffect(() => {
+      updateSize();
+      
+      // 創建 ResizeObserver 來監聽父容器大小變化
+      const resizeObserver = new ResizeObserver(() => {
+        updateSize();
+      });
+      
+      if (containerRef.current?.parentElement) {
+        resizeObserver.observe(containerRef.current.parentElement);
+      }
+      
+      // 監聽窗口大小變化
+      window.addEventListener('resize', updateSize);
+      
+      return () => {
+        resizeObserver.disconnect();
+        window.removeEventListener('resize', updateSize);
+      };
+    }, [updateSize]);
+
+    // 當尺寸變化或數據變化時重新渲染圖表
     useEffect(() => {
       if (!svgRef.current || !data) return;
+
+      // 清除先前的內容
+      while (svgRef.current.firstChild) {
+        svgRef.current.removeChild(svgRef.current.firstChild);
+      }
+
+      // 更新 SVG 尺寸
+      svgRef.current.setAttribute('width', dimensions.width.toString());
+      svgRef.current.setAttribute('height', dimensions.height.toString());
 
       if (mode === 'mindmap') {
         const mindmap = new MindMap(
           svgRef.current,
-          600,    // 寬度
-          400,    // 高度
+          dimensions.width,
+          dimensions.height,
           15,     // 一般垂直間距
           80      // 第三層以後的垂直間距
         );
         mindmap.render(data);
+        
+        // 在渲染後增加節點大小和文字大小
+        setTimeout(() => {
+          if (!svgRef.current) return;
+          
+          // 增加文字大小
+          const textElements = svgRef.current.querySelectorAll('text');
+          textElements.forEach(text => {
+            // 增加字體大小和字重
+            text.setAttribute('font-size', '14');
+            text.setAttribute('font-weight', '500');
+          });
+          
+          // 增加節點大小
+          const circleElements = svgRef.current.querySelectorAll('circle');
+          circleElements.forEach(circle => {
+            const currentRadius = parseFloat(circle.getAttribute('r') || '0');
+            circle.setAttribute('r', `${currentRadius * 1.2}`);
+          });
+          
+          // 調整連接線寬度
+          const pathElements = svgRef.current.querySelectorAll('path');
+          pathElements.forEach(path => {
+            path.setAttribute('stroke-width', '2');
+          });
+        }, 100);
       } else {
         const scd = new SystemContextDiagram();
         // 未來可以添加系統圖的渲染邏輯
       }
-    }, [data, mode]);
+    }, [data, mode, dimensions]);
 
     return (
       <div 
         ref={containerRef} 
-        className="bg-white rounded-lg p-4 my-4" // 增加內邊距
+        className="bg-white rounded-lg p-4 my-4"
         style={{ 
-          width: `${dimensions.width}px`,
-          height: `${dimensions.height}px`,
-          margin: '0 auto',
-          overflow: 'hidden'
+          width: '100%',
+          overflowX: 'auto' // 允許水平滾动
         }}
       >
-        <svg
-          ref={svgRef}
-          width={dimensions.width}
-          height={dimensions.height}
-          className="rounded-lg"
-          style={{
-            display: 'block',
-            background: 'white'
-          }}
-        />
+        <div style={{ 
+          minWidth: dimensions.width < 600 ? '600px' : 'auto',
+          width: dimensions.width < 600 ? '600px' : 'auto'
+        }}>
+          <svg
+            ref={svgRef}
+            width={dimensions.width}
+            height={dimensions.height}
+            className="rounded-lg"
+            style={{
+              display: 'block',
+              background: 'white'
+            }}
+          />
+        </div>
       </div>
     );
   };
@@ -421,44 +531,71 @@ export const ChatRoom = (): JSX.Element => {
         msg.role === "assistant" 
           ? "bg-gray-100 rounded-r-lg rounded-bl-lg ml-2" 
           : "bg-blue-100 rounded-l-lg rounded-br-lg mr-2"
-      } p-4`}>
-        {/* 圖片區塊 */}
+      } p-4 relative`}>
+        
+        {/* 圖片區塊 - 這裡需要改正 */}
         {msg.images && msg.images.length > 0 && (
-          <div className="mb-3 space-y-2">
-            {msg.images.map((img, imgIdx) => (
-              <div key={imgIdx} className="relative">
-                <img
-                  src={getImageUrl(img.fileId)}
-                  alt={img.filename}
-                  className="max-w-full rounded-lg"
-                  onError={(e) => {
-                    const target = e.target as HTMLImageElement;
-                    target.onerror = null;
-                    target.src = "..\\..\\..\\..\\public\\pic\\error-image.png";
-                  }}
+          <div className="flex flex-wrap gap-2 mb-3">
+            {msg.images.map((image, i) => (
+              <div key={`img-${image.fileId}-${i}`} className="relative group">
+                <img 
+                  src={image.base64 ? `data:image/jpeg;base64,${image.base64}` : getImageUrl(image.fileId)}
+                  alt={image.filename || `圖片 ${i+1}`}
+                  className="max-w-[150px] max-h-[150px] rounded-lg object-cover cursor-pointer hover:opacity-90"
+                  onClick={() => window.open(getImageUrl(image.fileId), '_blank')}
                 />
               </div>
             ))}
           </div>
         )}
         
-        {/* 圖表區塊 - 調整樣式 */}
+        {/* 文字內容區塊 - 使用 ReactMarkdown */}
+        <div className="text-base md:text-lg font-Inknut_Antiqua-Regular break-words prose prose-slate max-w-none">
+          <ReactMarkdown 
+            remarkPlugins={[remarkGfm]}
+            components={{
+              code: ({ node, inline, className, children, ...props }: any) => {
+                if (inline) {
+                  return (
+                    <code className="bg-gray-100 rounded px-1 py-0.5" {...props}>
+                      {children}
+                    </code>
+                  );
+                }
+                return (
+                  <div className="bg-gray-100 rounded-lg p-3 my-2">
+                    <code className="block whitespace-pre-wrap" {...props}>
+                      {children}
+                    </code>
+                  </div>
+                );
+              },
+              p: ({ children }: { children?: React.ReactNode }) => (
+                <p className="whitespace-pre-wrap mb-2">{children}</p>
+              ),
+            }}
+          >
+            {msg.content}
+          </ReactMarkdown>
+        </div>
+        
+        {/* 圖表區塊 - 移動到文字內容區塊之後 */}
         {msg.graph_json && (
-          <div className="w-full">
-            <GraphRenderer 
-              data={msg.graph_json} 
-              mode={msg.graph_json.nodes ? 'graph' : 'mindmap'} 
-            />
+          <div className="mt-4 w-full">
+            <div className="bg-gray-50 rounded-lg overflow-hidden">
+              <GraphRenderer data={msg.graph_json} mode="mindmap" />
+            </div>
           </div>
         )}
         
-        {/* 文字內容區塊 */}
-        <div className="text-base md:text-lg font-Inknut_Antiqua-Regular break-words">
-          {msg.content}
-          {msg.role === "assistant" && isLoading && idx === messages.length - 1 && (
-            <span className="inline-block animate-pulse">▋</span>
-          )}
-        </div>
+        {/* 新的動畫元素 - 與 Markdown 分離 */}
+        {msg.role === "assistant" && isLoading && idx === messages.length - 1 && (
+          <div className="typing-indicator mt-2">
+            <span className="typing-dot"></span>
+            <span className="typing-dot"></span>
+            <span className="typing-dot"></span>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -484,6 +621,47 @@ export const ChatRoom = (): JSX.Element => {
           @import url('https://fonts.googleapis.com/css2?family=Inknut+Antiqua:wght@400;700&display=swap');
           .font-Inknut_Antiqua-Regular {
             font-family: 'Inknut Antiqua', serif;
+          }
+          
+          /* 新增的打字動畫樣式 */
+          .typing-indicator {
+            display: inline-flex;
+            align-items: center;
+            background-color: rgba(181, 209, 225, 0.15);
+            border-radius: 1rem;
+            padding: 0.5rem 0.75rem;
+          }
+          
+          .typing-dot {
+            display: inline-block;
+            width: 0.5rem;
+            height: 0.5rem;
+            margin: 0 0.15rem;
+            background-color: #6683d2;
+            border-radius: 50%;
+            opacity: 0.7;
+          }
+          
+          .typing-dot:nth-child(1) {
+            animation: typing-animation 1.4s infinite ease-in-out -0.32s;
+          }
+          
+          .typing-dot:nth-child(2) {
+            animation: typing-animation 1.4s infinite ease-in-out -0.16s;
+          }
+          
+          .typing-dot:nth-child(3) {
+            animation: typing-animation 1.4s infinite ease-in-out;
+          }
+          
+          @keyframes typing-animation {
+            0%, 80%, 100% { 
+              transform: scale(0.7);
+            }
+            40% { 
+              transform: scale(1);
+              opacity: 1;
+            }
           }
         `}
       </style>
@@ -697,17 +875,28 @@ export const ChatRoom = (): JSX.Element => {
                       >
                         #
                       </button>
-                      <input
-                        type="text"
+                      <textarea
                         value={question}
                         onChange={(e) => setQuestion(e.target.value)}
-                        className="ml-2 w-full bg-transparent focus:outline-none text-lg"
-                        placeholder={isLoading ? "Model is responding..." : "Type your message or drag & drop an image..."}
                         onKeyDown={(e) => {
-                          if (e.key === "Enter" && !e.shiftKey && question.trim() && !isLoading) {
-                            e.preventDefault();
-                            handleSendMessage();
+                          if (e.key === "Enter") {
+                            if (e.shiftKey) {
+                              // Shift + Enter 換行 - textarea 會自動處理
+                              return;
+                            } else if (question.trim() && !isLoading) {
+                              // 只有 Enter 發送
+                              e.preventDefault();
+                              handleSendMessage();
+                            }
                           }
+                        }}
+                        className="ml-2 w-full bg-transparent focus:outline-none text-lg resize-none"
+                        placeholder={isLoading ? "Model is responding..." : "Type your message (Shift + Enter for new line)..."}
+                        rows={1}
+                        style={{ 
+                          height: 'auto',
+                          minHeight: '24px',
+                          maxHeight: '120px'
                         }}
                       />
                     </div>

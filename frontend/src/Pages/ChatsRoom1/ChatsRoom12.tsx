@@ -2,6 +2,9 @@ import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { fetchSSEStream } from "../../../api_servers";
 import { v4 as uuidv4 } from "uuid";
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+
 //訪客版
 interface Message {
   role: "user" | "assistant";
@@ -152,12 +155,43 @@ export const ChatsRoom1 = () => {
                         : "bg-[#F3F3F3] self-start text-left ml-2 border border-gray-200"
                       }`}
                   >
-                    <p className="text-base md:text-lg font-Inknut_Antiqua-Regular break-words">
-                      {msg.content}
+                    <div className="text-base md:text-lg font-Inknut_Antiqua-Regular break-words prose prose-slate max-w-none">
+                      <ReactMarkdown 
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          // 自定義程式碼區塊樣式
+                          code: ({node, inline, className, children, ...props}) => {
+                            if (inline) {
+                              return (
+                                <code className="bg-gray-100 rounded px-1 py-0.5" {...props}>
+                                  {children}
+                                </code>
+                              );
+                            }
+                            return (
+                              <div className="bg-gray-100 rounded-lg p-3 my-2">
+                                <code className="block whitespace-pre-wrap" {...props}>
+                                  {children}
+                                </code>
+                              </div>
+                            );
+                          },
+                          // 保持換行並對齊
+                          p: ({children}) => (
+                            <p className={`whitespace-pre-wrap mb-2 ${
+                              msg.role === "user" ? "text-right" : "text-left"
+                            }`}>
+                              {children}
+                            </p>
+                          ),
+                        }}
+                      >
+                        {msg.content}
+                      </ReactMarkdown>
                       {msg.role === "assistant" && isLoading && idx === messages.length - 1 && (
                         <span className="inline-block animate-pulse">▋</span>
                       )}
-                    </p>
+                    </div>
                   </div>
                 ))}
                 {error && (
@@ -195,17 +229,27 @@ export const ChatsRoom1 = () => {
               </div>
               <div className="w-full h-12 bg-[#d9d9d9] rounded-2xl flex items-center px-4">
                 <span className="text-gray-700 text-xl">#</span>
-                <input
-                  type="text"
-                  className="ml-2 flex-1 bg-transparent focus:outline-none text-lg"
+                <textarea
+                  className="ml-2 flex-1 bg-transparent focus:outline-none text-lg resize-none"
                   placeholder={isLoading ? "Model is responding..." : "Type your message..."}
                   value={question}
                   onChange={(e) => setQuestion(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey && !isLoading && question.trim()) {
-                      e.preventDefault();
-                      handleSendMessage();
+                    if (e.key === "Enter") {
+                      if (e.shiftKey) {
+                        // Shift + Enter 換行
+                        return;
+                      } else if (!isLoading && question.trim()) {
+                        e.preventDefault();
+                        handleSendMessage();
+                      }
                     }
+                  }}
+                  rows={1}
+                  style={{ 
+                    height: 'auto',
+                    minHeight: '24px',
+                    maxHeight: '120px'
                   }}
                 />
                 <button
@@ -229,17 +273,27 @@ export const ChatsRoom1 = () => {
             <div className="hidden md:block">
               <div className="w-full h-16 bg-[#d9d9d9] rounded-2xl flex items-center px-6 mb-4">
                 <span className="text-gray-700 text-2xl">#</span>
-                <input
-                  type="text"
-                  className="ml-2 flex-1 bg-transparent focus:outline-none text-xl"
+                <textarea
+                  className="ml-2 flex-1 bg-transparent focus:outline-none text-xl resize-none"
                   placeholder={isLoading ? "Model is responding..." : "Type your message..."}
                   value={question}
                   onChange={(e) => setQuestion(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey && !isLoading && question.trim()) {
-                      e.preventDefault();
-                      handleSendMessage();
+                    if (e.key === "Enter") {
+                      if (e.shiftKey) {
+                        // Shift + Enter 換行
+                        return;
+                      } else if (!isLoading && question.trim()) {
+                        e.preventDefault();
+                        handleSendMessage();
+                      }
                     }
+                  }}
+                  rows={1}
+                  style={{ 
+                    height: 'auto',
+                    minHeight: '24px',
+                    maxHeight: '120px'
                   }}
                 />
                 <button

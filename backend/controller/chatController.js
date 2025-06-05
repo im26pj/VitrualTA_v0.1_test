@@ -335,7 +335,7 @@ exports.chatWithOllama = async (req, res) => {
       assistantMessage.content += chunkContent;
       res.write(`data: ${JSON.stringify({ content: chunkContent })}\n\n`);
     }
-
+    
     // 儲存對話到資料庫
     if (!isVisitor) {
       try {
@@ -390,21 +390,23 @@ exports.chatWithOllama = async (req, res) => {
         res.write(`data: ${JSON.stringify({ error: '儲存對話失敗' })}\n\n`);
       }
     }
+    
 
-    // 檢查是否為圖表生成請求
+
+    // 讀取用戶最後一條訊息
     let question = conversationHistory
       .slice()
       .reverse()
       .find(msg => msg.role === 'user')?.content || '';
-
     
     //let question = "生成一張心智圖以erp為主題";
-
+    //檢查用戶是否要生成圖片
     if(question.includes("生成") || question.toUpperCase().includes("GENERATE") || 
        question.includes("畫") || question.toUpperCase().includes("DRAW") ||
        question.includes("繪製") || question.toUpperCase().includes("DRAWING") ||
        question.includes("圖") || question.toUpperCase().includes("PICTURE") || 
-       question.toUpperCase().includes("IMAGE")) { 
+       question.toUpperCase().includes("IMAGE")) 
+    { 
       console.log("進入要求生成圖片邏輯處理");
       
       if(question.toUpperCase().includes("MINDMAP") || question.includes("心智")) {
@@ -437,7 +439,7 @@ exports.chatWithOllama = async (req, res) => {
       assistantMessage.content += chunkContent;
       res.write(`data: ${JSON.stringify({ content: chunkContent })}\n\n`);
     }
-
+    /*
     // 儲存對話到資料庫
     if (!isVisitor) {
       try {
@@ -492,7 +494,7 @@ exports.chatWithOllama = async (req, res) => {
         res.write(`data: ${JSON.stringify({ error: '儲存對話失敗' })}\n\n`);
       }
     }
-
+    */
     res.write('data: [DONE]\n\n');
     res.end();
 
