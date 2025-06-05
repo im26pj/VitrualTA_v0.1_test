@@ -19,7 +19,12 @@ interface Message {
     filename: string;
     base64?: string;
   }[];
-  graph_json?: any; // 新增：用於存儲圖表數據
+  graph_json?: {
+    name?: string;
+    children?: any[];
+    nodes?: any[];
+    links?: any[];
+  };
 }
 
 interface ChatHistory {
@@ -49,6 +54,17 @@ interface UploadImageResponse {
     filename: string;
     base64: string;
   }>;
+}
+
+// Add this interface for graph responses
+interface GraphResponse {
+  type: 'graph';
+  content: {
+    name?: string;
+    children?: any[];
+    nodes?: any[];
+    links?: any[];
+  };
 }
 
 export const ChatRoom = (): JSX.Element => {
@@ -220,8 +236,7 @@ export const ChatRoom = (): JSX.Element => {
   const handleSendMessage = async () => {
     if (!question.trim() || isLoading || isUploading) return;
 
-    let prompt_graph = "";
-    // 保存當前的圖片 IDs，因為我們馬上要清除 uploadingImages
+    // 保存當前的圖片 IDs
     const currentImageIds = uploadingImages.map(img => img.id);
 
     const userMessage: Message = {
@@ -246,7 +261,6 @@ export const ChatRoom = (): JSX.Element => {
         URL.revokeObjectURL(img.preview);
       }
     });
-    // 清空上傳圖片列表
     setUploadingImages([]);
 
     try {
@@ -255,21 +269,34 @@ export const ChatRoom = (): JSX.Element => {
         chat_id: currentChatId,
         isVisitor: false,
         isNewChat: messages.length === 0,
-        img_id: currentImageIds // 使用保存的圖片 IDs
+        img_id: currentImageIds
       };
 
       await fetchSSEStream(
         "/api/chat",
         messageData,
-        (content) => {
-          prompt_graph += content;
+        (content: any) => {
           setMessages(prev => {
             const lastMessage = prev[prev.length - 1];
             if (lastMessage?.role === "assistant") {
-              return [...prev.slice(0, -1), { ...lastMessage, content: lastMessage.content + content }];
-            } else {
-              return [...prev, { role: "assistant", content }];
+              // 檢查是否為圖表數據
+              if (typeof content === 'object' && content.type === 'graph') {
+                return [...prev.slice(0, -1), {
+                  ...lastMessage,
+                  graph_json: content.content,  // 直接使用圖表數據
+                  content: lastMessage.content || ''
+                }];
+              }
+              // 一般文字內容
+              return [...prev.slice(0, -1), {
+                ...lastMessage,
+                content: lastMessage.content + (typeof content === 'string' ? content : '')
+              }];
             }
+            return [...prev, {
+              role: "assistant",
+              content: typeof content === 'string' ? content : ''
+            }];
           });
         },
         (error) => setError(error)
@@ -279,86 +306,6 @@ export const ChatRoom = (): JSX.Element => {
     } finally {
       setIsLoading(false);
     }
-
-     /*test area */
-    if(question.includes("生成") || question.toUpperCase().includes("GENERATE") || question.includes("圖") || question.toUpperCase().includes("PICTURE") || question.toUpperCase().includes("IMAGE")) 
-    { 
-      console.log("進入要求生成圖片邏輯處理");
-      console.log("content:",prompt_graph);
-      //列舉圖處理
-      //mindmap
-      if(question.toUpperCase().includes("MINDMAP") ||  question.includes("心智")) {
-        console.log("進入要求 MINDMAP"); 
-        const prompt_scd = `
-          請根據以下描述建立一個階層式的節點結構，回傳格式為**嵌套的 JSON**，代表一個樹狀結構。每個節點都包含 "name"，如有子節點則包含 "children" 欄位，並遵守以下格式：
-
-          範例格式：
-          {"name": "中心主題","children": [{"name": "子節點 1"},{"name": "子節點 2","children": [{"name": "子節點 2-1"},{"name": "子節點 2-2","children": [{"name": "子節點2-2-1"}]}]}]}
-          不要加入任何說明、註解或文字，內文使用繁體中文，僅回傳符合上述格式的 JSON 結構。
-          描述：
-          ${prompt_graph}
-        `;
-        console.log("生成的 prompt_scd:", prompt_scd);
-
-        try {
-          let responseContent = "";
-          
-          await generateGraph(
-            {
-              isVisitor: false,
-              chat_id: currentChatId || undefined,
-              content: prompt_scd
-            },
-            (content) => {
-              responseContent += content;
-            },
-            (error) => {
-              console.error("發生錯誤:", error);
-              setError(error);
-            }
-          );
-
-          try {
-            const graphData = JSON.parse(responseContent);
-            console.log("完整的圖表數據:", graphData);
-            
-            // 將圖表數據添加到最後一條消息中
-            setMessages(prev => {
-              const lastMessage = prev[prev.length - 1];
-              if (lastMessage?.role === "assistant") {
-                return [...prev.slice(0, -1), { 
-                  ...lastMessage,
-                  graph_json: graphData 
-                }];
-              }
-              return prev;
-            });
-          } catch (parseError) {
-            console.error('JSON 解析失敗:', parseError);
-            setError('生成的圖表格式無效');
-          }
-
-        } catch (error) {
-          console.error('API 調用失敗:', error);
-          setError('API 調用失敗');
-        }
-
-
-      }
-      else if(question.toUpperCase().includes("SCD") || question.toUpperCase().includes("SYSTEM CONTEXT DIAGRAM") || question.toUpperCase().includes("SYSTEMCONTEXTDIAGRAM") || question.includes("系統"))
-      {
-        console.log("進入要求 SCD"); 
-        const prompt_mindmap = "";
-
-      }
-      else
-      {
-      //非列舉圖請求處理
-      console.log("Step1 丟出請求到ollama擴展請求並翻譯成英文生成prompt");
-      console.log("Step2 呼叫Stable-Diffusion");
-      }
-    }
-
   };
 
   const handleDragOver = (e: React.DragEvent) => {

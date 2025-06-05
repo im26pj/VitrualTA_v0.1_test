@@ -26,6 +26,185 @@ const upload = multer({
   }
 }).array('images', 5); // 允許最多上傳5張圖片
 
+// 1. 首先添加內部函數
+async function generateGraphInternal(content, userId, chat_id, graph_type) {
+  let prompt_generate = '';
+  if(graph_type.toUpperCase() == "MINDMAP") {   
+    prompt_generate = `
+      請根據以下描述建立一個階層式的節點結構，回傳格式為**嵌套的 JSON**，代表一個樹狀結構。每個節點都包含 "name"，如有子節點則包含 "children" 欄位，並遵守以下格式：
+
+      範例格式：
+      {"name": "中心主題","children": [{"name": "子節點 1"},{"name": "子節點 2","children": [{"name": "子節點 2-1"},{"name": "子節點 2-2","children": [{"name": "子節點2-2-1"}]}]}]}
+      不要加入任何說明、註解或文字，內文使用繁體中文，僅回傳符合上述格式的 JSON 結構。
+      描述：
+      ${content}
+    `;
+  }
+  else if(graph_type.toUpperCase() == "SCD") {
+    const prompt_generate = `
+    請根據下面的需求與描述，建立一個簡單的系統上下文圖，使用繁體中文描述，並回傳乾淨的 JSON，不要包含任何其他說明文字。  
+    JSON 格式必須包含兩個屬性：  
+      1. nodes：節點陣列，每個節點都要有 id（字串）與 type（"external"、"process" 等）  
+      2. links：連結陣列，每個連結要有 source、target（都對應到 nodes 裡的 id）和 label（字串）  
+
+    請依照下面的範例格式回傳，且盡可能完整的敘述資料流動：  
+    {
+      "nodes": [
+        {
+          "id": "User",
+          "type": "external"
+        },
+        {
+          "id": "通常是主題名稱或其他外部實體",
+          "type": "process"
+        }
+        // …（如有其他節點就繼續往下寫）  
+      ],
+      "links": [
+        {
+          "source": "User",
+          "target": "主題名稱或其他外部實體",
+          "label": "敘述資料/指令"
+        },
+        {
+          "source": "User",
+          "target": "主題名稱或其他外部實體",
+          "label": "敘述資料/指令"
+        },
+        ...
+        {
+          "source": "主題名稱或其他外部實體",
+          "target": "User",
+          "label": "敘述資料/指令"
+        },
+        {
+          "source": "主題名稱或其他外部實體",
+          "target": "User",
+          "label": "敘述資料/指令"
+        },
+        {
+          "source": "主題名稱或其他外部實體",
+          "target": "User",
+          "label": "敘述資料/指令"
+        },
+        ...
+      ]
+    }
+    描述：
+    ${content}
+    `;
+  }
+
+
+  try {
+    const response = await ollama.chat({
+      model: 'llama3.2-vision:11b',
+      messages: [
+        {
+          role: 'user',
+          content: prompt_generate
+        }
+      ],
+      stream: false
+    });
+
+    let fullResponse = response.message.content;
+    let cleanedResponse = fullResponse;
+    
+    if (cleanedResponse.includes('```json')) {
+      cleanedResponse = cleanedResponse
+        .split('```json')[1]
+        .split('```')[0]
+        .trim();
+    }
+    
+    const jsonStart = cleanedResponse.indexOf('{');
+    const jsonEnd = cleanedResponse.lastIndexOf('}');
+    
+    if (jsonStart !== -1 && jsonEnd !== -1) {
+      cleanedResponse = cleanedResponse.substring(jsonStart, jsonEnd + 1);
+    }
+
+    const parsedResponse = JSON.parse(cleanedResponse);
+
+    // Save to database if userId and chat_id are provided
+    if (userId && chat_id) {
+      let chatDoc = await Chat.findOne({ chat_id, userId });
+      
+      if (!chatDoc) {
+        chatDoc = new Chat({
+          userId,
+          chat_id,
+          title: content.substring(0, 50) + '...',
+          chat_history: [],
+          updated_at: new Date()
+        });
+      }
+
+      // 修改這裡：確保存入完整的圖表數據
+      chatDoc.chat_history.push({
+        role: 'assistant',
+        graph_json: parsedResponse,        // 保存原始回應
+        timestamp: new Date()
+      });
+
+      chatDoc.updated_at = new Date();
+      await chatDoc.save();
+    }
+
+    return parsedResponse;
+  } catch (error) {
+    // 使用函数的参数来追踪重试次数
+    async function retryGenerate(retryCount = 1) {
+      console.error(`generateGraphInternal error ${retryCount}:`, error);
+      
+      if (retryCount < 2) {
+        try {
+          return await generateGraphInternal(content, userId, chat_id, graph_type);
+        } catch (retryError) {
+          return await retryGenerate(retryCount + 1);
+        }
+      }
+      throw new Error('圖片生成失敗');
+    }
+
+    return await retryGenerate();
+  }
+}
+
+// 2. 修改原本的 API endpoint，使用內部函數
+exports.generateGraph = async (req, res) => {
+  const { isVisitor, chat_id, content , graph_type} = req.body;
+  const authHeader = req.headers.authorization;
+
+  try {
+    let userId;
+    if (!isVisitor) {
+      if (!authHeader?.startsWith('Bearer ')) {
+        return res.status(401).json({ success: false, message: '請先登入' });
+      }
+
+      const token = authHeader.split(' ')[1];
+      const decoded = jwt.verify(token, JWT_SECRET);
+      userId = decoded.id;
+    }
+
+    const result = await generateGraphInternal(content, userId, chat_id , graph_type);
+    
+    return res.json({
+      success: true,
+      data: result
+    });
+
+  } catch (err) {
+    console.error('生成圖表錯誤:', err);
+    return res.status(500).json({ 
+      success: false, 
+      error: err.message 
+    });
+  }
+};
+
 exports.chatWithOllama = async (req, res) => {
   const { conversationHistory, isVisitor, chat_id, isNewChat, img_64, img_id } = req.body;
   const authHeader = req.headers.authorization;
@@ -33,6 +212,19 @@ exports.chatWithOllama = async (req, res) => {
   if (!conversationHistory || !Array.isArray(conversationHistory)) {
     return res.status(400).json({ success: false, message: '缺少對話歷史' });
   }
+
+  // 提前處理 userId
+  let userId = null;
+  if (!isVisitor && authHeader?.startsWith('Bearer ')) {
+    try {
+      const token = authHeader.split(' ')[1];
+      const decoded = jwt.verify(token, JWT_SECRET);
+      userId = decoded.id;
+    } catch (error) {
+      console.error('Token 驗證失敗:', error);
+    }
+  }
+
 
   try {
     let userId;
@@ -52,6 +244,7 @@ exports.chatWithOllama = async (req, res) => {
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders();
 
+    
     // 修改 processedHistory 的處理方式
     const processedHistory = await Promise.all(
       conversationHistory.map(async (msg) => {
@@ -134,11 +327,113 @@ exports.chatWithOllama = async (req, res) => {
 
     // 收集完整回應
     let fullResponse = '';
-    const iterator = await ollama.chat(ollamaRequest);
+    let iterator = await ollama.chat(ollamaRequest);
     
     for await (const chunk of iterator) {
       const chunkContent = chunk.message?.content ?? '';
       fullResponse += chunkContent;
+      assistantMessage.content += chunkContent;
+      res.write(`data: ${JSON.stringify({ content: chunkContent })}\n\n`);
+    }
+
+    // 儲存對話到資料庫
+    if (!isVisitor) {
+      try {
+        let chatDoc;
+        if (isNewChat) {
+          const cleanUserMessage = {
+            ...userMessage,
+            images: undefined // 不儲存 base64 圖片
+          };
+          
+          chatDoc = new Chat({
+            userId,
+            chat_id,
+            title: userMessage.content.substring(0, 50) + '...',
+            chat_history: [cleanUserMessage],
+            updated_at: new Date()
+          });
+        } else {
+          // 更新現有對話
+          chatDoc = await Chat.findOne({ chat_id, userId });
+          if (!chatDoc) {
+            chatDoc = new Chat({
+              userId,
+              chat_id,
+              title: userMessage.content.substring(0, 50) + '...',
+              chat_history: [],
+              updated_at: new Date()
+            });
+          }
+        }
+
+        // 添加新的對話記錄，但只保存 img_id
+        if (!isNewChat) {
+          const cleanUserMessage = {
+            ...userMessage,
+            images: undefined // 不儲存 base64 圖片
+          };
+          chatDoc.chat_history.push(cleanUserMessage);
+        }
+        
+        chatDoc.chat_history.push({
+          ...assistantMessage,
+          content: fullResponse
+        });
+        
+        chatDoc.updated_at = new Date();
+        await chatDoc.save();
+        
+        console.log('對話已儲存:', chatDoc);
+      } catch (dbErr) {
+        console.error('儲存對話失敗:', dbErr);
+        res.write(`data: ${JSON.stringify({ error: '儲存對話失敗' })}\n\n`);
+      }
+    }
+
+    // 檢查是否為圖表生成請求
+    let question = conversationHistory
+      .slice()
+      .reverse()
+      .find(msg => msg.role === 'user')?.content || '';
+
+    
+    //let question = "生成一張心智圖以erp為主題";
+
+    if(question.includes("生成") || question.toUpperCase().includes("GENERATE") || 
+       question.includes("畫") || question.toUpperCase().includes("DRAW") ||
+       question.includes("繪製") || question.toUpperCase().includes("DRAWING") ||
+       question.includes("圖") || question.toUpperCase().includes("PICTURE") || 
+       question.toUpperCase().includes("IMAGE")) { 
+      console.log("進入要求生成圖片邏輯處理");
+      
+      if(question.toUpperCase().includes("MINDMAP") || question.includes("心智")) {
+        console.log("進入要求 MINDMAP"); 
+        try {
+          const result = await generateGraphInternal(question, userId, chat_id, "MINDMAP");
+          // 使用 SSE 格式發送圖表數據
+          res.write(`data: ${JSON.stringify({
+            type: 'graph',
+            content: result
+          })}\n\n`);
+        } catch (error) {
+          console.error('圖表生成失敗:', error);
+          res.write(`data: ${JSON.stringify({
+            type: 'error',
+            content: '圖表生成失敗'
+          })}\n\n`);
+        }
+        res.write('data: [DONE]\n\n');
+        return res.end();
+      }
+    }
+
+    // 一般對話流程 - 移除重複的變量宣告
+    iterator = await ollama.chat(ollamaRequest);
+    
+    for await (const chunk of iterator) {
+      const chunkContent = chunk.message?.content ?? '';
+      fullResponse = chunkContent; // 重用已存在的 fullResponse 變量
       assistantMessage.content += chunkContent;
       res.write(`data: ${JSON.stringify({ content: chunkContent })}\n\n`);
     }
@@ -210,6 +505,8 @@ exports.chatWithOllama = async (req, res) => {
       res.end();
     }
   }
+
+
 };
 
 exports.getChatHistories = async (req, res) => {
@@ -518,92 +815,3 @@ exports.deleteImage = async (req, res) => {
 
 // 將 upload 中間件導出
 exports.upload = upload;
-
-// 在 chatController.js 中添加新的函數
-exports.generateGraph = async (req, res) => {
-  const { isVisitor, chat_id, content } = req.body;
-  const authHeader = req.headers.authorization;
-
-  try {
-    let userId;
-    if (!isVisitor) {
-      if (!authHeader?.startsWith('Bearer ')) {
-        return res.status(401).json({ success: false, message: '請先登入' });
-      }
-
-      const token = authHeader.split(' ')[1];
-      const decoded = jwt.verify(token, JWT_SECRET);
-      userId = decoded.id;
-    }
-
-    // SSE 設置
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.flushHeaders();
-
-    // 準備 Ollama 請求
-    const ollamaRequest = {
-      model: 'llama3.2-vision:11b',
-      messages: [
-        {
-          role: 'user',
-          content: content
-        }
-      ],
-      keep_alive: "30m",
-      stream: true
-    };
-
-    // 收集完整回應
-    let fullResponse = '';
-    const iterator = await ollama.chat(ollamaRequest);
-    
-    for await (const chunk of iterator) {
-      const chunkContent = chunk.message?.content ?? '';
-      fullResponse += chunkContent;
-      res.write(`data: ${JSON.stringify({ content: chunkContent })}\n\n`);
-    }
-
-    // 儲存到資料庫
-    if (!isVisitor) {
-      try {
-        let chatDoc = await Chat.findOne({ chat_id, userId });
-        
-        if (!chatDoc) {
-          chatDoc = new Chat({
-            userId,
-            chat_id,
-            title: 'Generated Graph',
-            chat_history: [],
-            updated_at: new Date()
-          });
-        }
-
-        chatDoc.chat_history.push({
-          role: 'assistant',
-          graph_json: fullResponse,
-          timestamp: new Date()
-        });
-
-        chatDoc.updated_at = new Date();
-        await chatDoc.save();
-      } catch (dbErr) {
-        console.error('儲存圖表失敗:', dbErr);
-        res.write(`data: ${JSON.stringify({ error: '儲存圖表失敗' })}\n\n`);
-      }
-    }
-
-    res.write('data: [DONE]\n\n');
-    res.end();
-
-  } catch (err) {
-    console.error('生成圖表錯誤:', err);
-    if (!res.headersSent) {
-      res.status(500).json({ error: err.message });
-    } else {
-      res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
-      res.end();
-    }
-  }
-};
