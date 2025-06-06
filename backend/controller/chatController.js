@@ -41,7 +41,8 @@ async function generateGraphInternal(content, userId, chat_id, graph_type) {
     `;
   }
   else if(graph_type.toUpperCase() == "SCD") {
-    const prompt_generate = `
+    console.log("進入 SCD 生成邏輯function");
+    prompt_generate = `
     請根據下面的需求與描述，建立一個簡單的系統上下文圖，使用繁體中文描述，並回傳乾淨的 JSON，不要包含任何其他說明文字。  
     JSON 格式必須包含兩個屬性：  
       1. nodes：節點陣列，每個節點都要有 id（字串）與 type（"external"、"process" 等）  
@@ -141,10 +142,10 @@ async function generateGraphInternal(content, userId, chat_id, graph_type) {
         });
       }
 
-      // 修改這裡：確保存入完整的圖表數據
+      // 修改這裡：確保存入完整的圖表數據，並轉換為字串形式
       chatDoc.chat_history.push({
         role: 'assistant',
-        graph_json: parsedResponse,        // 保存原始回應
+        graph_json: JSON.stringify(parsedResponse, null, 2),  // 轉換為格式化的 JSON 字串
         timestamp: new Date()
       });
 
@@ -409,8 +410,10 @@ exports.chatWithOllama = async (req, res) => {
     { 
       console.log("進入要求生成圖片邏輯處理");
       
-      if(question.toUpperCase().includes("MINDMAP") || question.includes("心智")) {
+      if(question.toUpperCase().includes("MINDMAP") || question.includes("心智") || question.includes("新智") || question.includes("思維導圖") )
+      {
         console.log("進入要求 MINDMAP"); 
+
         try {
           const result = await generateGraphInternal(question, userId, chat_id, "MINDMAP");
           // 使用 SSE 格式發送圖表數據
@@ -428,7 +431,34 @@ exports.chatWithOllama = async (req, res) => {
         res.write('data: [DONE]\n\n');
         return res.end();
       }
+      else if( question.toUpperCase().includes("SCD") || question.toUpperCase().includes("SYSTEM CONTEXT DIAGRAM") ||
+      question.toUpperCase().includes("CONTEXTDIAGRAM") || question.toUpperCase().includes("CONTEXT DIAGRAM") ||
+      question.toUpperCase().includes("SYSTEMCONTEXTDIAGRAM") || question.includes("系統") || question.includes("環境"))
+      {
+        console.log("進入要求 SCD");
+
+          try {
+            const result = await generateGraphInternal(question, userId, chat_id, "SCD");
+            // 使用 SSE 格式發送圖表數據
+            res.write(`data: ${JSON.stringify({
+              type: 'graph',
+              content: result
+            })}\n\n`);
+          } catch (error) {
+            console.error('圖表生成失敗:', error);
+            res.write(`data: ${JSON.stringify({
+              type: 'error',
+              content: '圖表生成失敗'
+            })}\n\n`);
+          }
+          res.write('data: [DONE]\n\n');
+          return res.end();
+
+      }
+      
     }
+    
+
 
     // 一般對話流程 - 移除重複的變量宣告
     iterator = await ollama.chat(ollamaRequest);
@@ -439,7 +469,7 @@ exports.chatWithOllama = async (req, res) => {
       assistantMessage.content += chunkContent;
       res.write(`data: ${JSON.stringify({ content: chunkContent })}\n\n`);
     }
-    /*
+    
     // 儲存對話到資料庫
     if (!isVisitor) {
       try {
@@ -494,7 +524,7 @@ exports.chatWithOllama = async (req, res) => {
         res.write(`data: ${JSON.stringify({ error: '儲存對話失敗' })}\n\n`);
       }
     }
-    */
+    
     res.write('data: [DONE]\n\n');
     res.end();
 
@@ -817,3 +847,52 @@ exports.deleteImage = async (req, res) => {
 
 // 將 upload 中間件導出
 exports.upload = upload;
+
+// 刪除特定對話
+exports.deleteChat = async (req, res) => {
+  try {
+    // 驗證用戶是否已登入
+    if (!req.headers.authorization?.startsWith('Bearer ')) {
+      return res.status(401).json({ success: false, message: '請先登入' });
+    }
+
+    const token = req.headers.authorization.split(' ')[1];
+    const decoded = jwt.verify(token, JWT_SECRET);
+    const userId = decoded.id;
+    const chatId = req.params.chatId;
+
+    // 檢查對話是否存在且屬於該用戶
+    const chat = await Chat.findOne({
+      userId: userId,
+      chat_id: chatId
+    });
+
+    if (!chat) {
+      return res.status(404).json({
+        success: false,
+        message: '找不到對話或無權限刪除此對話'
+      });
+    }
+
+    // 刪除對話
+    await Chat.deleteOne({ userId, chat_id: chatId });
+
+    // 回傳成功訊息
+    res.json({
+      success: true,
+      message: '對話已成功刪除'
+    });
+
+  } catch (err) {
+    console.error('刪除對話錯誤:', err);
+    
+    if (err instanceof jwt.JsonWebTokenError) {
+      return res.status(401).json({ success: false, message: '無效的認證token' });
+    }
+    
+    res.status(500).json({
+      success: false,
+      message: '刪除對話失敗'
+    });
+  }
+};

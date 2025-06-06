@@ -1,11 +1,12 @@
 import React, { JSX, useEffect, useRef, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { clearAuthToken, getAuthToken } from "../../utils/auth";
-import { fetchSSEStream, apiGet, uploadImage, getImageUrl, deleteImage , generateGraph } from "../../../api_servers";
+import { fetchSSEStream, apiGet, uploadImage, getImageUrl, deleteImage, generateGraph, deleteChatHistory } from "../../../api_servers";
 import { SystemContextDiagram } from '../Graph/SCD';
 import { MindMap } from '../Graph/mindmap';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import * as d3 from 'd3';
 
 //有登入頁面
 interface MessageImage {
@@ -103,6 +104,14 @@ export const ChatRoom = (): JSX.Element => {
 
   // 新增待上傳圖片狀態
   const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
+
+  // 在 GraphRenderer 組件中添加以下狀態
+  const [selectedNode, setSelectedNode] = useState<any>(null);
+  const [selectedLink, setSelectedLink] = useState<any>(null);
+  const [isAddingNode, setIsAddingNode] = useState(false);
+
+  // 新增刪除對話確認狀態
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   const handleDropdownToggle = () => setShowDropdown(!showDropdown);
 
@@ -276,7 +285,7 @@ export const ChatRoom = (): JSX.Element => {
     };
 
     // 在發送前先清除輸入和預覽
-    setMessages(prev => [...prev, userMessage]);
+    setMessages(prev => [...prev, userMessage, { role: "assistant", content: "" }]);
     setQuestion("");
     setIsLoading(true);
     setError(null);
@@ -457,9 +466,337 @@ export const ChatRoom = (): JSX.Element => {
         }, 100);
       } else {
         const scd = new SystemContextDiagram();
-        // 未來可以添加系統圖的渲染邏輯
+        
+        // 建立 D3 選擇器並設定基本屬性
+        const svg = d3.select(svgRef.current);
+        svg.attr('width', dimensions.width)
+           .attr('height', dimensions.height)
+           .style('background', '#fff');
+        
+        // 解析並渲染資料
+        try {
+          // 將原始數據轉換為字符串，確保 parseInput 可以正確處理
+          let jsonStr;
+          if (typeof data === 'string') {
+            jsonStr = data;
+          } else {
+            jsonStr = JSON.stringify(data);
+          }
+          
+          console.log("渲染 SCD 圖，原始數據:", jsonStr);
+          
+          // 使用 parseInput 方法處理數據，這將計算所有必要的坐標和屬性
+          const processedData = scd.parseInput(jsonStr);
+          console.log("處理後的 SCD 數據:", processedData);
+          
+          if (processedData.nodes && processedData.nodes.length > 0) {
+            // 繪製 SCD 圖
+            const { nodes, links } = processedData;
+            
+            // 創建縮放元素
+            const zoomContainer = svg.append('g');
+            const mainContainer = zoomContainer.append('g').attr('class', 'main-container');
+            const linkGroup = mainContainer.append('g').attr('class', 'links');
+            const nodeGroup = mainContainer.append('g').attr('class', 'nodes');
+            
+            const zoom = d3.zoom()
+              .scaleExtent([0.2, 1.5])
+              .on('zoom', (event) => {
+                zoomContainer.attr('transform', event.transform);
+              });
+            svg.call(zoom);
+            
+            // 建立箭頭標記定義
+            const defs = svg.append('defs');
+            ['up', 'down'].forEach(direction => {
+              defs.append('marker')
+                .attr('id', `arrow-${direction}`)
+                .attr('viewBox', '0 -5 10 10')
+                .attr('refX', 8)
+                .attr('refY', 0)
+                .attr('markerWidth', 6)
+                .attr('markerHeight', 6)
+                .attr('orient', direction === 'up' ? 'auto-start-reverse' : 'auto')
+                .append('path')
+                .attr('d', 'M0,-5L10,0L0,5')
+                .attr('fill', '#555');
+            });
+            
+            // 繪製連線
+            const linkPaths = linkGroup.selectAll('path')
+              .data(links)
+              .enter()
+              .append('path')
+              .attr('fill', 'none')
+              .attr('stroke', d => d === selectedLink ? '#ff6b6b' : '#555')
+              .attr('stroke-width', d => d === selectedLink ? 2.5 : 1.5)
+              .attr('d', d => scd.calculatePathPoints(d, nodes))
+              .attr('marker-end', d => {
+                const sourceNode = nodes.find(n => n.id === d.source);
+                const targetNode = nodes.find(n => n.id === d.target);
+                return sourceNode && targetNode && sourceNode.x < targetNode.x ?
+                  'url(#arrow-up)' : 'url(#arrow-down)';
+              })
+              .on('click', (event, d) => {
+                event.stopPropagation();
+                setSelectedNode(null);
+                setSelectedLink(d);
+              });
+            
+            // 繪製連線標籤
+            const linkLabels = linkGroup.selectAll('g')
+              .data(links)
+              .enter()
+              .append('g')
+              .attr('class', 'link-label');
+            
+            linkLabels.append('rect')
+              .attr('fill', 'white')
+              .attr('opacity', 0.8)
+              .attr('rx', 3);
+            
+            linkLabels.append('text')
+              .text(d => d.label)
+              .attr('text-anchor', 'middle')
+              .attr('dominant-baseline', 'middle')
+              .attr('font-size', '12px')
+              .attr('fill', d => d === selectedLink ? '#ff6b6b' : '#555');
+            
+            // 更新連線標籤位置
+            linkLabels.each(function(d) {
+              if (!d.pathPoints) return;
+              
+              const labelGroup = d3.select(this);
+              const text = labelGroup.select('text');
+              const rect = labelGroup.select('rect');
+              
+              const x = (d.pathPoints.sourceX + d.pathPoints.targetX) / 2;
+              const y = d.pathPoints.midY1 - 15;
+              
+              text.attr('x', x).attr('y', y);
+              
+              const bbox = text.node()!.getBBox();
+              rect.attr('x', bbox.x - 4)
+                  .attr('y', bbox.y - 2)
+                  .attr('width', bbox.width + 8)
+                  .attr('height', bbox.height + 4);
+              
+              labelGroup.style('cursor', 'pointer')
+                       .on('click', (event) => {
+                         event.stopPropagation();
+                         setSelectedLink(d);
+                         setSelectedNode(null);
+                       });
+            });
+            
+            // 拖拽功能實現
+            function nodeDragStarted(event: any) {
+              d3.select(event.sourceEvent.target.parentNode).raise();
+            }
+            
+            function nodeDragged(event: any, d: any) {
+              const newX = event.x;
+              const newY = event.y;
+              
+              // 更新節點位置
+              d.x = newX;
+              d.y = newY;
+              
+              // 清除舊的輔助線
+              svg.selectAll('.guideline').remove();
+              svg.selectAll('.guideline-text').remove();
+              
+              // 顯示對齊輔助線
+              showAlignmentGuides(d, newX, newY);
+              
+              // 更新圖形
+              d3.select(event.sourceEvent.target.parentNode)
+                .attr('transform', `translate(${newX},${newY})`);
+              
+              // 更新連接到此節點的連線
+              linkPaths.filter(l => l.source === d.id || l.target === d.id)
+                     .attr('d', l => scd.calculatePathPoints(l, nodes));
+              
+              // 更新連線標籤
+              linkLabels.each(function(l) {
+                if (l.source === d.id || l.target === d.id) {
+                  if (!l.pathPoints) return;
+                  
+                  const labelGroup = d3.select(this);
+                  const text = labelGroup.select('text');
+                  const rect = labelGroup.select('rect');
+                  
+                  const x = (l.pathPoints.sourceX + l.pathPoints.targetX) / 2;
+                  const y = l.pathPoints.midY1 - 15;
+                  
+                  text.attr('x', x).attr('y', y);
+                  
+                  const bbox = text.node()!.getBBox();
+                  rect.attr('x', bbox.x - 4)
+                      .attr('y', bbox.y - 2)
+                      .attr('width', bbox.width + 8)
+                      .attr('height', bbox.height + 4);
+                }
+              });
+            }
+            
+            function showAlignmentGuides(node: any, x: number, y: number) {
+              let closestX = null;
+              let closestY = null;
+              let minDeltaX = Infinity;
+              let minDeltaY = Infinity;
+              
+              nodes.forEach(other => {
+                if (other.id === node.id) return;
+                const dx = Math.abs(x - other.x);
+                const dy = Math.abs(y - other.y);
+                
+                if (dx < minDeltaX) {
+                  minDeltaX = dx;
+                  closestX = other;
+                }
+                if (dy < minDeltaY) {
+                  minDeltaY = dy;
+                  closestY = other;
+                }
+              });
+              
+              if (closestX && minDeltaX < 20) {
+                svg.append('line')
+                  .attr('class', 'guideline')
+                  .attr('x1', closestX.x)
+                  .attr('y1', 0)
+                  .attr('x2', closestX.x)
+                  .attr('y2', dimensions.height)
+                  .attr('stroke', '#aaa')
+                  .attr('stroke-width', 1)
+                  .attr('stroke-dasharray', '5,5');
+              }
+              
+              if (closestY && minDeltaY < 20) {
+                svg.append('line')
+                  .attr('class', 'guideline')
+                  .attr('x1', 0)
+                  .attr('y1', closestY.y)
+                  .attr('x2', dimensions.width)
+                  .attr('y2', closestY.y)
+                  .attr('stroke', '#aaa')
+                  .attr('stroke-width', 1)
+                  .attr('stroke-dasharray', '5,5');
+              }
+            }
+            
+            function nodeDragEnded() {
+              // 清除輔助線
+              svg.selectAll('.guideline').remove();
+              svg.selectAll('.guideline-text').remove();
+            }
+            
+            // 繪製節點
+            const nodeElements = nodeGroup.selectAll('g')
+              .data(nodes)
+              .enter()
+              .append('g')
+              .attr('transform', d => `translate(${d.x},${d.y})`)
+              .call(d3.drag<SVGGElement, any>()
+                .on('start', nodeDragStarted)
+                .on('drag', nodeDragged)
+                .on('end', nodeDragEnded)
+              )
+              .on('click', (event, d) => {
+                event.stopPropagation();
+                setSelectedNode(d);
+                setSelectedLink(null);
+              });
+            
+            nodeElements.append('rect')
+              .attr('width', d => d.width || 180)
+              .attr('height', d => d.height || 80)
+              .attr('x', d => (d.width || 180) / -2)
+              .attr('y', d => (d.height || 80) / -2)
+              .attr('rx', 5)
+              .attr('ry', 5)
+              .attr('fill', d => {
+                if (d === selectedNode) return '#ffd54f';
+                return d.type === 'external' ? '#e0f7fa' : '#b3e5fc';
+              })
+              .attr('stroke', '#333')
+              .attr('stroke-width', d => d === selectedNode ? 3 : 2);
+            
+            nodeElements.append('text')
+              .attr('text-anchor', 'middle')
+              .attr('dy', 4)
+              .attr('font-size', '18px')
+              .text(d => d.label || d.id);
+            
+            // 點擊背景取消選擇
+            svg.on('click', () => {
+              setSelectedNode(null);
+              setSelectedLink(null);
+            });
+            
+            // 新增節點功能
+            if (isAddingNode) {
+              svg.on('click', (event) => {
+                const [x, y] = d3.pointer(event);
+                const transform = d3.zoomTransform(svg.node()!);
+                const actualX = (x - transform.x) / transform.k;
+                const actualY = (y - transform.y) / transform.k;
+                
+                const newNode = {
+                  id: `node_${Date.now()}`,
+                  label: '新節點',
+                  x: actualX,
+                  y: actualY,
+                  width: 180,
+                  height: 80,
+                  type: 'process'
+                };
+                
+                nodes.push(newNode);
+                setIsAddingNode(false);
+                
+                // 重新渲染
+                nodeGroup.selectAll('*').remove();
+                nodeElements.data(nodes).enter();
+                
+                // 注意：這裡只是模擬添加節點，實際上需要更新 data 狀態來觸發重新渲染
+              });
+            }
+            
+            // 自動縮放適應所有節點
+            const padding = 50;
+            const bounds = {
+              minX: d3.min(nodes, d => d.x - (d.width || 180) / 2) || 0,
+              maxX: d3.max(nodes, d => d.x + (d.width || 180) / 2) || dimensions.width,
+              minY: d3.min(nodes, d => d.y - (d.height || 80) / 2) || 0,
+              maxY: d3.max(nodes, d => d.y + (d.height || 80) / 2) || dimensions.height
+            };
+            
+            const xScale = (dimensions.width - padding * 2) / (bounds.maxX - bounds.minX);
+            const yScale = (dimensions.height - padding * 2) / (bounds.maxY - bounds.minY);
+            const scale = Math.min(xScale, yScale, 1);
+            
+            const translateX = (dimensions.width - (bounds.maxX - bounds.minX) * scale) / 2 - bounds.minX * scale;
+            const translateY = (dimensions.height - (bounds.maxY - bounds.minY) * scale) / 2 - bounds.minY * scale;
+            
+            svg.call(zoom.transform, d3.zoomIdentity
+              .translate(translateX, translateY)
+              .scale(scale));
+          } else {
+            throw new Error('SCD 數據缺少有效的節點');
+          }
+        } catch (error) {
+          console.error('渲染 SCD 圖錯誤:', error);
+          svg.append('text')
+            .attr('x', dimensions.width / 2)
+            .attr('y', dimensions.height / 2)
+            .attr('text-anchor', 'middle')
+            .attr('fill', 'red')
+            .text('無法渲染系統上下文圖：' + error.message);
+        }
       }
-    }, [data, mode, dimensions]);
+    }, [data, mode, dimensions, selectedNode, selectedLink, isAddingNode]);
 
     return (
       <div 
@@ -579,11 +916,14 @@ export const ChatRoom = (): JSX.Element => {
           </ReactMarkdown>
         </div>
         
-        {/* 圖表區塊 - 移動到文字內容區塊之後 */}
+        {/* 圖表區塊 - 修改為正確判斷圖表類型 */}
         {msg.graph_json && (
           <div className="mt-4 w-full">
             <div className="bg-gray-50 rounded-lg overflow-hidden">
-              <GraphRenderer data={msg.graph_json} mode="mindmap" />
+              <GraphRenderer 
+                data={msg.graph_json} 
+                mode={(msg.graph_json.nodes && Array.isArray(msg.graph_json.nodes)) ? 'graph' : 'mindmap'} 
+              />
             </div>
           </div>
         )}
@@ -609,6 +949,37 @@ export const ChatRoom = (): JSX.Element => {
       });
     };
   }, [uploadingImages]);
+
+  // 新增刪除對話函數
+  const handleDeleteChat = async (chatId: string) => {
+    try {
+      setIsLoading(true);
+      const result = await deleteChatHistory(chatId);
+      
+      if (result.success) {
+        // 從聊天歷史列表中移除被刪除的聊天
+        setChatHistories(prev => prev.filter(chat => chat.chat_id !== chatId));
+        
+        // 如果刪除的是當前選中的聊天，則重置當前聊天
+        if (currentChatId === chatId) {
+          setCurrentChatId(null);
+          setMessages([]);
+          localStorage.removeItem('current_chat_id');
+        }
+        
+        // 顯示成功訊息
+        setError(null);
+      } else {
+        throw new Error(result.message || '刪除對話失敗');
+      }
+    } catch (err) {
+      console.error('刪除對話失敗:', err);
+      setError(err instanceof Error ? err.message : '刪除對話失敗');
+    } finally {
+      setDeleteConfirmId(null);
+      setIsLoading(false);
+    }
+  };
 
   return (
     <div className="bg-[#6683d2] flex flex-col items-center w-full min-h-screen px-4 md:px-8">
@@ -662,6 +1033,19 @@ export const ChatRoom = (): JSX.Element => {
               transform: scale(1);
               opacity: 1;
             }
+          }
+
+          /* 這些樣式已經包含在上面的 JSX 中，使用了 Tailwind 的 utility classes */
+          .group:hover .group-hover\:opacity-100 {
+            opacity: 1;
+          }
+          .opacity-0 {
+            opacity: 0;
+          }
+          .transition-opacity {
+            transition-property: opacity;
+            transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+            transition-duration: 150ms;
           }
         `}
       </style>
@@ -755,20 +1139,63 @@ export const ChatRoom = (): JSX.Element => {
               {chatHistories.map((chat) => (
                 <div
                   key={chat.chat_id}
-                  onClick={() => selectChat(chat.chat_id)}
                   className={`
-                    p-3 mb-2 rounded-xl cursor-pointer
+                    p-3 mb-2 rounded-xl 
                     transition-colors duration-200
                     ${currentChatId === chat.chat_id 
                       ? 'bg-[#D1E8FF] border border-[#B5D1E1]' 
                       : 'hover:bg-gray-100'
                     }
+                    relative group
                   `}
                 >
-                  <div className="font-semibold truncate">{chat.title}</div>
-                  <div className="text-sm text-gray-500">
-                    {new Date(chat.updated_at).toLocaleDateString()}
+                  <div 
+                    onClick={() => selectChat(chat.chat_id)}
+                    className="cursor-pointer"
+                  >
+                    <div className="font-semibold truncate pr-7">{chat.title}</div>
+                    <div className="text-sm text-gray-500">
+                      {new Date(chat.updated_at).toLocaleDateString()}
+                    </div>
                   </div>
+                  
+                  {/* 刪除按鈕 - 滑鼠懸停時顯示 */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeleteConfirmId(chat.chat_id);
+                    }}
+                    className="absolute right-2 top-3 text-gray-400 hover:text-red-500 
+                      opacity-0 group-hover:opacity-100 transition-opacity"
+                    title="刪除對話"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
+                  
+                  {/* 刪除確認對話框 */}
+                  {deleteConfirmId === chat.chat_id && (
+                    <div className="absolute inset-0 bg-white rounded-xl shadow-md p-2 z-20 border border-gray-200">
+                      <p className="text-sm font-bold text-center">確定要刪除此對話嗎？</p>
+                      <div className="flex justify-center gap-2 mt-2">
+                        <button
+                          onClick={() => handleDeleteChat(chat.chat_id)}
+                          className="px-3 py-1 bg-red-500 text-white text-sm rounded hover:bg-red-600"
+                          disabled={isLoading}
+                        >
+                          {isLoading ? '刪除中...' : '確定'}
+                        </button>
+                        <button
+                          onClick={() => setDeleteConfirmId(null)}
+                          className="px-3 py-1 bg-gray-200 text-gray-800 text-sm rounded hover:bg-gray-300"
+                          disabled={isLoading}
+                        >
+                          取消
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

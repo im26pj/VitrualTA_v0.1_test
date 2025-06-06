@@ -25,21 +25,23 @@ export const ChatsRoom1 = () => {
     navigate(path);
   };
 
+  // 修改 handleSendMessage 函數
   const handleSendMessage = async () => {
     if (!question.trim() || isLoading) return;
 
     const userMessage: Message = { role: "user", content: question };
-    setMessages((prev) => [...prev, userMessage]);
+    
+    // 合併為一步操作：添加用戶訊息和空的 assistant 訊息
+    setMessages((prev) => [...prev, userMessage, { role: "assistant", content: "" }]);
     setQuestion("");
     setIsLoading(true);
     setError(null);
 
-    let assistantMessage: Message = { role: "assistant", content: "" };
-    setMessages((prev) => [...prev, assistantMessage]);
-
     try {
       const visitorId = localStorage.getItem('visitor_id') || `visitor-${uuidv4()}`;
-      localStorage.setItem('visitor_id', visitorId);      await fetchSSEStream(
+      localStorage.setItem('visitor_id', visitorId);
+      
+      await fetchSSEStream(
         "/api/chat",
         { 
           conversationHistory: [...messages, userMessage].map(msg => ({
@@ -51,11 +53,16 @@ export const ChatsRoom1 = () => {
           isNewChat: messages.length === 0
         },
         (content) => {
-          assistantMessage.content += content;
-          setMessages((prev) => [
-            ...prev.slice(0, -1),
-            { ...assistantMessage },
-          ]);
+          setMessages((prev) => {
+            const lastMessage = prev[prev.length - 1];
+            if (lastMessage?.role === "assistant") {
+              return [
+                ...prev.slice(0, -1),
+                { ...lastMessage, content: lastMessage.content + content },
+              ];
+            }
+            return prev;
+          });
         },
         (error) => {
           setError(error);
@@ -102,6 +109,7 @@ export const ChatsRoom1 = () => {
   return (
     <div className="bg-[#6683d2] flex justify-center w-full min-h-screen">
       <div className="bg-[#6683d2] w-full min-h-screen flex flex-col items-center">
+        {/* 在 style 標籤中添加以下 CSS */}
         <style>
           {`
           @import url('https://fonts.googleapis.com/css2?family=Kavoon&display=swap');
@@ -111,6 +119,47 @@ export const ChatsRoom1 = () => {
           @import url('https://fonts.googleapis.com/css2?family=Inknut+Antiqua:wght@400;700&display=swap');
           .font-Inknut_Antiqua-Regular {
             font-family: 'Inknut Antiqua', serif;
+          }
+  
+          /* 新增的打字動畫樣式 */
+          .typing-indicator {
+            display: inline-flex;
+            align-items: center;
+            background-color: rgba(181, 209, 225, 0.15);
+            border-radius: 1rem;
+            padding: 0.5rem 0.75rem;
+          }
+  
+          .typing-dot {
+            display: inline-block;
+            width: 0.5rem;
+            height: 0.5rem;
+            margin: 0 0.15rem;
+            background-color: #6683d2;
+            border-radius: 50%;
+            opacity: 0.7;
+          }
+  
+          .typing-dot:nth-child(1) {
+            animation: typing-animation 1.4s infinite ease-in-out -0.32s;
+          }
+  
+          .typing-dot:nth-child(2) {
+            animation: typing-animation 1.4s infinite ease-in-out -0.16s;
+          }
+  
+          .typing-dot:nth-child(3) {
+            animation: typing-animation 1.4s infinite ease-in-out;
+          }
+  
+          @keyframes typing-animation {
+            0%, 80%, 100% { 
+              transform: scale(0.7);
+            }
+            40% { 
+              transform: scale(1);
+              opacity: 1;
+            }
           }
           `}
         </style>
@@ -188,8 +237,14 @@ export const ChatsRoom1 = () => {
                       >
                         {msg.content}
                       </ReactMarkdown>
-                      {msg.role === "assistant" && isLoading && idx === messages.length - 1 && (
-                        <span className="inline-block animate-pulse">▋</span>
+                      
+                      {/* 替換原本的加載動畫，使用新的打字指示器 */}
+                      {msg.role === "assistant" && isLoading && idx === messages.length - 1 && !msg.content && (
+                        <div className="typing-indicator mt-2">
+                          <span className="typing-dot"></span>
+                          <span className="typing-dot"></span>
+                          <span className="typing-dot"></span>
+                        </div>
                       )}
                     </div>
                   </div>

@@ -411,3 +411,8 @@ export const generateGraph = async (
   throw new Error(lastError || '所有伺服器串流連線皆失敗');
     throw new Error(lastError || '所有伺服器串流連線皆失敗');
   };
+
+// 在檔案末尾添加這個新函數
+export const deleteChatHistory = async (chatId: string): Promise<any> => {
+  return apiDelete(`/api/chat/${chatId}`);
+};
