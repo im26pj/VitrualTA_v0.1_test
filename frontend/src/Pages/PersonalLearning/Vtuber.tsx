@@ -46,7 +46,7 @@ export const PersonalLearning = () => {
           <img
             className="w-[70px] h-[70px] object-cover cursor-pointer"
             alt="User Avatar"
-            src="https://c.animaapp.com/iiDcfYsY/img/2021781015212021@2x.png"
+            src="/pic/2021781015212021.png"
             onClick={handleDropdownToggle}
           />
         </div>
@@ -81,7 +81,7 @@ export const PersonalLearning = () => {
   <img
     className="w-full md:w-1/2 max-w-lg h-auto"
     alt="Element"
-    src="https://c.animaapp.com/qsOI3aZQ/img/53783794637-44b575bb56-b-removebg-preview.png"
+    src="/pic/53783794637-44b575bb56-b-removebg-preview.png"
   />
 
   {/* 對話框區塊 */}
@@ -104,7 +104,7 @@ export const PersonalLearning = () => {
         <img
           className="w-[30px] h-[35px]"
           alt="Polygon"
-          src="https://c.animaapp.com/qsOI3aZQ/img/polygon-1.svg"
+          src="/pic/polygon-1.svg"
         />
       </div>
     </div>

@@ -11,8 +11,8 @@ var apiRouter = require('./routes/api');
 var app = express();
 
 // ======== 加入靜態前端檔案支援 ========
-//const frontendPath = path.join(__dirname, '../frontend/dist');
-//app.use(express.static(frontendPath));
+const frontendPath = path.join(__dirname, '../frontend/dist');
+app.use(express.static(frontendPath));
 // =====================================
 
 // ======== CORS 設定：支援 trycloudflare.com 與內網 ========

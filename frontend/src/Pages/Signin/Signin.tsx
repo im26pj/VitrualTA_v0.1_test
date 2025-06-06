@@ -99,7 +99,7 @@ export const Signin = (): JSX.Element => {
           <img
             className="mx-auto w-50 lg:w-[500px] h-auto"
             alt="Learning culture"
-            src="..\..\..\..\public\pic\learning-culture-vark-learning-styles.png"
+            src="/pic/learning-culture-vark-learning-styles.png"
           />
         </div>
 
@@ -153,7 +153,7 @@ export const Signin = (): JSX.Element => {
             <img
               className="w-full h-full"
               alt="Gummy bedroom"
-              src="..\..\..\..\public\pic\gummy-bedroom1.png"
+              src="/pic/gummy-bedroom1.png"
             />
           </div>
         </div>

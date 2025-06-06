@@ -52,7 +52,7 @@ export const GroupPage = () => {
           <img
             className="w-[70px] h-[70px] object-cover cursor-pointer"
             alt="User Icon"
-            src="..\..\..\..\public\pic\2021781015212021@2x.png"
+            src="/pic/2021781015212021.png"
             onClick={handleDropdownToggle}
           />
           {showDropdown && (

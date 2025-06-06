@@ -681,7 +681,7 @@ export const ChatRoom = (): JSX.Element => {
             <img
               className="w-[70px] h-[70px] object-cover cursor-pointer"
               alt="User Avatar"
-              src="..\..\..\..\public\pic\2021781015212021@2x.png"
+              src="/pic/2021781015212021.png"
               onClick={handleDropdownToggle}
             />
           </div>
@@ -728,7 +728,7 @@ export const ChatRoom = (): JSX.Element => {
           `}
         >
           <img
-            src="../../../public/pic/bars-solid.svg"
+            src="/pic/bars-solid.svg"
             alt="menu"
             className="w-6 h-6"
           />
@@ -787,7 +787,7 @@ export const ChatRoom = (): JSX.Element => {
               <img
                 className="w-full max-w-[300px] md:w-1/2 md:max-w-lg h-auto object-contain mx-auto"
                 alt="Vtuber"
-                src="..\..\..\..\public\pic\53783794637-44b575bb56-b-removebg-preview.png"
+                src="/pic/53783794637-44b575bb56-b-removebg-preview.png"
               />
             )}
 
@@ -811,7 +811,7 @@ export const ChatRoom = (): JSX.Element => {
                     <img
                       className="w-[80%] max-w-[350px] h-auto"
                       alt="Intro Graphic"
-                      src="..\..\..\..\public\pic\pixeltrue-data-analysis-1-1@2x.png"
+                      src="/pic/pixeltrue-data-analysis-1-1@2x.png"
                     />
                     <p className="text-xl md:text-4xl text-black font-bold text-center mt-6 font-Inknut_Antiqua-Regular">
                       What can I do for you?
@@ -910,7 +910,7 @@ export const ChatRoom = (): JSX.Element => {
                     >
                       <img
                         className={sendButtonImageStyle}
-                        src="..\..\..\..\public\pic\polygon-3-2.svg"
+                        src="/pic/polygon-3-2.svg"
                         alt="Send"
                       />
                     </button>

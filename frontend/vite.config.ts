@@ -6,9 +6,14 @@ import tailwindcss from "tailwindcss";
 export default defineConfig({
   plugins: [react()],
   server: {
-    host: "0.0.0.0",
     port: 5000,
-    open: true,
+    //在開發環境下(前後端分離時)將圖片請求代理到後端
+    proxy: {
+      "/pic": {
+        target: "http://localhost:3000",
+        changeOrigin: true,
+      },
+    },
   },
   publicDir: "./static",
   base: "/",

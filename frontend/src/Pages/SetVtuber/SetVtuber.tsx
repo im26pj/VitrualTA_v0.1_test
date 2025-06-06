@@ -52,7 +52,7 @@ export const SetVtuber = (): JSX.Element => {
             <img
               className="w-[70px] h-[70px] object-cover cursor-pointer"
               alt="User Avatar"
-              src="..\..\..\..\public\pic\2021781015212021@2x.png"
+              src="/pic/2021781015212021.png"
               onClick={handleDropdownToggle}
             />
           </div>
@@ -90,7 +90,7 @@ export const SetVtuber = (): JSX.Element => {
           <img
             className="w-full h-auto"
             alt="Vtuber"
-            src="..\..\..\..\public\pic\53783794637-44b575bb56-b-removebg-preview.png"
+            src="/pic/53783794637-44b575bb56-b-removebg-preview.png"
           />
         </div>
 

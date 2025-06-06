@@ -160,7 +160,7 @@ export const SignUp = (): JSX.Element => {
               <img
                 className="w-[60%] md:w-[40%] max-w-[200px] h-auto"
                 alt="Pixeltrue plan"
-                src="https://c.animaapp.com/U6DmsIFF/img/pixeltrue-plan-1-1@2x.png"
+                src="/pic/pixeltrue-plan.png"
               />
             </div>
           </div>

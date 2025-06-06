@@ -44,7 +44,7 @@ export const ResultsTracking = (): JSX.Element => {
             <img
               className="w-[70px] h-[70px] object-cover cursor-pointer"
               alt="User Avatar"
-              src="..\..\..\..\public\pic\2021781015212021@2x.png"
+              src="/pic/2021781015212021.png"
               onClick={handleDropdownToggle}
             />
           </div>
@@ -85,7 +85,7 @@ export const ResultsTracking = (): JSX.Element => {
           className="bg-[#B5D1E1] rounded-3xl p-6 w-full md:w-[46%] flex flex-col items-center cursor-pointer hover:scale-105 transition-transform shadow-lg"
         >
           <img
-            src="..\..\..\..\public\pic\pixeltrue-support.png"
+            src="/pic/pixeltrue-support.png"
             alt="Online Test Center"
             className="h-[320px] md:h-[380px] object-contain"
           />
@@ -102,7 +102,7 @@ export const ResultsTracking = (): JSX.Element => {
           className="bg-[#B5D1E1] rounded-3xl p-6 w-full md:w-[46%] flex flex-col items-center cursor-pointer hover:scale-105 transition-transform shadow-lg"
         >
           <img
-            src="..\..\..\..\public\pic\pixeltrue-plan.png"
+            src="/pic/pixeltrue-plan.png"
             alt="Learning Outcome Report"
             className="h-[320px] md:h-[380px] object-contain"
           />

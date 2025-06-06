@@ -10,7 +10,9 @@ interface ApiError {
  */
 const getBaseServers = (): string[] => {
   const currentHost = window.location.origin;
-  const isLocal = window.location.hostname === 'localhost';
+  const hostname = window.location.hostname;
+  const isLocal = hostname === 'localhost';
+  const isCloudflare = hostname.endsWith('.trycloudflare.com');
 
   const localServers = [
     'http://localhost:3000',     // Express API server
@@ -18,11 +20,29 @@ const getBaseServers = (): string[] => {
     'http://localhost:5000'      // Frontend dev server
   ];
 
-  const remoteServers = [
+  let remoteServers = [
     currentHost.startsWith('http') ? currentHost : ''
-  ].filter(Boolean);
+  ];
 
-  return isLocal ? localServers : remoteServers;
+  // 如果是 Cloudflare Tunnel 網址，嘗試提取主要部分並構建可能的變體
+  if (isCloudflare) {
+    // 從目前網址提取 Cloudflare 網域的隨機部分
+    const randomPart = hostname.split('.')[0];
+    console.log(`檢測到 Cloudflare Tunnel 網址: ${randomPart}`);
+    
+    // 添加可能的 API 服務器變體到候選清單
+    // 如果當前是前端，嘗試連接到後端；反之亦然
+    if (randomPart.includes('frontend')) {
+      remoteServers.push(`https://${randomPart.replace('frontend', 'backend')}.trycloudflare.com`);
+    } else if (randomPart.includes('backend')) {
+      remoteServers.push(`https://${randomPart.replace('backend', 'frontend')}.trycloudflare.com`);
+    }
+    
+    // 如果有其他已知的固定服務名稱，也可以加入
+    // 例如: remoteServers.push(`https://api-virtualTA.trycloudflare.com`);
+  }
+
+  return isLocal ? localServers : remoteServers.filter(Boolean);
 };
 
 /**

@@ -138,7 +138,7 @@ export const ChatsRoom1 = () => {
                 <img
                   className="w-[60%] md:w-[80%] max-w-[350px] h-auto mb-6"
                   alt="Pixeltrue data"
-                  src="..\..\..\..\public\pic\pixeltrue-data-analysis-1-1@2x.png"
+                  src="/pic/pixeltrue-data-analysis-1-1@2x.png"
                 />
                 <p className="text-lg md:text-4xl text-black font-semibold text-center font-Inknut_Antiqua-Regular">
                   What can I do for you?
@@ -262,7 +262,7 @@ export const ChatsRoom1 = () => {
                 >
                   <img
                     className={sendButtonImageStyle}
-                    src="..\..\..\..\public\pic\polygon-3-2.svg"
+                    src="/pic/polygon-3-2.svg"
                     alt="Send"
                   />
                 </button>
@@ -306,7 +306,7 @@ export const ChatsRoom1 = () => {
                 >
                   <img
                     className={sendButtonImageStyle}
-                    src="..\..\..\..\public\pic\polygon-3-2.svg"
+                    src="/pic/polygon-3-2.svg"
                     alt="Send"
                   />
                 </button>

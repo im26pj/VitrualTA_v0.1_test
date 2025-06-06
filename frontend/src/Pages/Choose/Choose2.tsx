@@ -60,7 +60,7 @@ export const Choose = () => {
       {/* 計算機圖片 - 右上角 */}
       <img
         className="absolute top-[25%] right-[30%] w-20 md:w-40"
-        src="..\..\..\..\public\pic\gummy-calculator 1.png"
+        src="/pic/gummy-calculator1.png"
         alt="Calculator"
       />
 
@@ -80,7 +80,7 @@ export const Choose = () => {
       {/* 算盤圖片 - 左下角 */}
       <img
         className="absolute bottom-[5%] left-[5%] w-24 md:w-48"
-          src="..\..\..\..\public\pic\gummy-abacus 1.png"
+          src="/pic/gummy-abacus1.png"
         alt="Abacus"
       />
     </div>

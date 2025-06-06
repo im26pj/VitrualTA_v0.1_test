@@ -98,7 +98,7 @@ export const Second = (): JSX.Element => {
           >
             <div className="bg-[#b5d1e1] rounded-[28px] p-6 h-[420px] md:h-[520px] relative shadow-lg">
               <img
-                src="..\..\..\..\public\pic\gummy-green-school-bag-ready-for-studying-time-1@2x.png"
+                src="/pic/gummy-green-school-bag-ready-for-studying-time-1@2x.png"
                 alt="School Bag"
                 className="absolute bottom-0 left-0 w-[180px] md:w-[220px] translate-x-[-15%] translate-y-[10%] pointer-events-none"
               />
@@ -115,7 +115,7 @@ export const Second = (): JSX.Element => {
           >
             <div className="bg-[#b5d1e1] rounded-[28px] p-6 h-[420px] md:h-[520px] relative shadow-lg">
               <img
-                src="..\..\..\..\public\pic\gummy-notebook-1.png"
+                src="/pic/gummy-notebook-1.png"
                 alt="Notebook"
                 className="absolute bottom-0 left-0 w-[180px] md:w-[220px] translate-x-[-15%] translate-y-[10%] pointer-events-none"
               />
@@ -129,12 +129,12 @@ export const Second = (): JSX.Element => {
 
       {/* Decoration */}
       <img
-        src="..\..\..\..\public\pic\bonbon-line-molecular-formula-4@2x.png"
+        src="/pic/bonbon-line-molecular-formula-4@2x.png"
         className="absolute top-0 right-0 w-[150px] opacity-30 pointer-events-none"
         alt=""
       />
       <img
-        src="..\..\..\..\public\pic\bonbon-line-molecular-formula-2@2x.png"
+        src="/pic/bonbon-line-molecular-formula-2@2x.png"
         className="absolute bottom-0 left-1/3 w-[150px] opacity-30 pointer-events-none"
         alt=""
       />
