@@ -80,6 +80,31 @@ interface CodeComponentProps {
   props?: any;  // 添加這個來接收其他可能的屬性
 }
 
+// 1. 添加需要的介面定義
+interface NodeData {
+  id: string;
+  x: number;
+  y: number;
+  width?: number;
+  height?: number;
+  type?: string;
+  label?: string;
+}
+
+interface LinkData {
+  source: string;
+  target: string;
+  label?: string;
+  pathPoints?: any;
+}
+
+interface Bounds {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+}
+
 export const ChatRoom = (): JSX.Element => {
   const navigate = useNavigate();
   const [showDropdown, setShowDropdown] = useState(false);
@@ -106,12 +131,18 @@ export const ChatRoom = (): JSX.Element => {
   const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
 
   // 在 GraphRenderer 組件中添加以下狀態
-  const [selectedNode, setSelectedNode] = useState<any>(null);
-  const [selectedLink, setSelectedLink] = useState<any>(null);
+  const [selectedNode, setSelectedNode] = useState<NodeData | null>(null);
+  const [selectedLink, setSelectedLink] = useState<LinkData | null>(null);
   const [isAddingNode, setIsAddingNode] = useState(false);
 
   // 新增刪除對話確認狀態
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+
+  // 在 ChatRoom 組件的開頭添加以下狀態變數
+  const [showToolMenu, setShowToolMenu] = useState(false);
+  const [showModelOptions, setShowModelOptions] = useState(false);
+  const [selectedModel, setSelectedModel] = useState<"1.5" | "3.5">("1.5"); // 預設為 1.5
+  const toolButtonRef = useRef<HTMLButtonElement>(null);
 
   const handleDropdownToggle = () => setShowDropdown(!showDropdown);
 
@@ -164,41 +195,34 @@ export const ChatRoom = (): JSX.Element => {
     setMessages([]);
   };
 
+  // 在 selectChat 函数中增加 img_id 處理邏輯
   const selectChat = async (chatId: string) => {
     try {
       setIsLoading(true);
-      const data = await apiGet(`/api/chat/${chatId}`);
+      const response = await apiGet(`/api/chat/${chatId}`);
       
-      if (data.success && data.chat_history) {
-        // 首先映射消息並設置基本屬性
-        const formattedMessages: Message[] = await Promise.all(data.chat_history.map(async (msg: any) => {
-          const formattedMsg: Message = {
-            role: msg.role,
-            content: msg.content,
-            img_id: msg.img_id,
-            graph_json: msg.graph_json
-          };
+      if (response.success) {
+        // 處理並轉換歷史記錄中的圖片ID
+        const processedHistory = response.chat_history.map((msg: any) => {
+          // 核心修改：確保將img_id轉換為前端需要的images格式
+          const processedMsg = { ...msg };
           
-          // 如果有圖片ID，設置圖片資訊
           if (msg.img_id && msg.img_id.length > 0) {
-            formattedMsg.images = msg.img_id.map((id: string) => ({
+            processedMsg.images = msg.img_id.map((id: string) => ({
               fileId: id,
-              filename: `圖片 ${id.substring(0, 8)}...`
+              filename: `AI生成圖片`
             }));
           }
           
-          return formattedMsg;
-        }));
+          return processedMsg;
+        });
         
+        setMessages(processedHistory);
         setCurrentChatId(chatId);
-        localStorage.setItem('current_chat_id', chatId);
-        setMessages(formattedMessages);
-      } else {
-        throw new Error(data.message || '無法載入對話');
+        setIsSidebarOpen(false);
       }
-    } catch (err) {
-      console.error('載入對話失敗:', err);
-      setError(err instanceof Error ? err.message : '載入對話失敗');
+    } catch (error) {
+      setError(error instanceof Error ? error.message : '載入對話失敗');
     } finally {
       setIsLoading(false);
     }
@@ -268,6 +292,7 @@ export const ChatRoom = (): JSX.Element => {
     }
   };
 
+  // 修改 handleSendMessage 函數，傳遞 model 參數
   const handleSendMessage = async () => {
     if (!question.trim() || isLoading || isUploading) return;
 
@@ -304,7 +329,8 @@ export const ChatRoom = (): JSX.Element => {
         chat_id: currentChatId,
         isVisitor: false,
         isNewChat: messages.length === 0,
-        img_id: currentImageIds
+        img_id: currentImageIds,
+        model: selectedModel  // 添加模型參數
       };
 
       await fetchSSEStream(
@@ -313,21 +339,50 @@ export const ChatRoom = (): JSX.Element => {
         (content: any) => {
           setMessages(prev => {
             const lastMessage = prev[prev.length - 1];
-            if (lastMessage?.role === "assistant") {
-              // 檢查是否為圖表數據
-              if (typeof content === 'object' && content.type === 'graph') {
+            
+            // 處理生成的圖片回應
+            if (typeof content === 'object' && content.type === 'image') {
+              const lastAssistantMsgIndex = [...prev].reverse().findIndex(m => m.role === 'assistant');
+              
+              // 如果最後一條 assistant 訊息有內容，不替換它，而是添加新訊息
+              if (lastAssistantMsgIndex >= 0 && prev[prev.length - 1 - lastAssistantMsgIndex].content.trim()) {
+                return [...prev, {
+                  role: "assistant",
+                  content: '已為您生成圖片',
+                  img_id: [content.imageId],
+                  images: [content.image || {
+                    fileId: content.imageId,
+                    filename: `AI生成圖片 ${new Date().toLocaleTimeString()}`
+                  }]
+                }];
+              } else {
+                // 沒有實質內容的訊息才替換
                 return [...prev.slice(0, -1), {
                   ...lastMessage,
-                  graph_json: content.content,  // 直接使用圖表數據
-                  content: lastMessage.content || ''
+                  content: '已為您生成圖片',
+                  img_id: [content.imageId],
+                  images: [content.image]
                 }];
               }
-              // 一般文字內容
+            }
+            
+            // 檢查是否為圖表數據
+            if (typeof content === 'object' && content.type === 'graph') {
+              return [...prev.slice(0, -1), {
+                ...lastMessage,
+                graph_json: content.content,  // 直接使用圖表數據
+                content: lastMessage.content || ''
+              }];
+            }
+            
+            // 一般文字內容
+            if (lastMessage?.role === "assistant") {
               return [...prev.slice(0, -1), {
                 ...lastMessage,
                 content: lastMessage.content + (typeof content === 'string' ? content : '')
               }];
             }
+            
             return [...prev, {
               role: "assistant",
               content: typeof content === 'string' ? content : ''
@@ -473,7 +528,6 @@ export const ChatRoom = (): JSX.Element => {
            .attr('height', dimensions.height)
            .style('background', '#fff');
         
-        // 解析並渲染資料
         try {
           // 將原始數據轉換為字符串，確保 parseInput 可以正確處理
           let jsonStr;
@@ -490,8 +544,9 @@ export const ChatRoom = (): JSX.Element => {
           console.log("處理後的 SCD 數據:", processedData);
           
           if (processedData.nodes && processedData.nodes.length > 0) {
-            // 繪製 SCD 圖
-            const { nodes, links } = processedData;
+            // 明確指定節點和連結的類型
+            const nodes = processedData.nodes as NodeData[];
+            const links = processedData.links as LinkData[];
             
             // 創建縮放元素
             const zoomContainer = svg.append('g');
@@ -504,7 +559,9 @@ export const ChatRoom = (): JSX.Element => {
               .on('zoom', (event) => {
                 zoomContainer.attr('transform', event.transform);
               });
-            svg.call(zoom);
+            
+            // 使用類型斷言解決 zoom 類型問題
+            svg.call(zoom as any);
             
             // 建立箭頭標記定義
             const defs = svg.append('defs');
@@ -530,7 +587,7 @@ export const ChatRoom = (): JSX.Element => {
               .attr('fill', 'none')
               .attr('stroke', d => d === selectedLink ? '#ff6b6b' : '#555')
               .attr('stroke-width', d => d === selectedLink ? 2.5 : 1.5)
-              .attr('d', d => scd.calculatePathPoints(d, nodes))
+              .attr('d', d => scd.calculatePathPoints(d as any, nodes))
               .attr('marker-end', d => {
                 const sourceNode = nodes.find(n => n.id === d.source);
                 const targetNode = nodes.find(n => n.id === d.target);
@@ -556,7 +613,7 @@ export const ChatRoom = (): JSX.Element => {
               .attr('rx', 3);
             
             linkLabels.append('text')
-              .text(d => d.label)
+              .text(d => d.label || "")
               .attr('text-anchor', 'middle')
               .attr('dominant-baseline', 'middle')
               .attr('font-size', '12px')
@@ -575,11 +632,15 @@ export const ChatRoom = (): JSX.Element => {
               
               text.attr('x', x).attr('y', y);
               
-              const bbox = text.node()!.getBBox();
-              rect.attr('x', bbox.x - 4)
-                  .attr('y', bbox.y - 2)
-                  .attr('width', bbox.width + 8)
-                  .attr('height', bbox.height + 4);
+              // 使用類型斷言處理 getBBox
+              const textNode = text.node();
+              if (textNode) {
+                const bbox = (textNode as SVGTextElement).getBBox();
+                rect.attr('x', bbox.x - 4)
+                    .attr('y', bbox.y - 2)
+                    .attr('width', bbox.width + 8)
+                    .attr('height', bbox.height + 4);
+              }
               
               labelGroup.style('cursor', 'pointer')
                        .on('click', (event) => {
@@ -615,7 +676,7 @@ export const ChatRoom = (): JSX.Element => {
               
               // 更新連接到此節點的連線
               linkPaths.filter(l => l.source === d.id || l.target === d.id)
-                     .attr('d', l => scd.calculatePathPoints(l, nodes));
+                     .attr('d', l => scd.calculatePathPoints(l as any, nodes));
               
               // 更新連線標籤
               linkLabels.each(function(l) {
@@ -641,12 +702,12 @@ export const ChatRoom = (): JSX.Element => {
             }
             
             function showAlignmentGuides(node: any, x: number, y: number) {
-              let closestX = null;
-              let closestY = null;
+              let closestX: NodeData | null = null;
+              let closestY: NodeData | null = null;
               let minDeltaX = Infinity;
               let minDeltaY = Infinity;
               
-              nodes.forEach(other => {
+              nodes.forEach((other: NodeData) => {
                 if (other.id === node.id) return;
                 const dx = Math.abs(x - other.x);
                 const dy = Math.abs(y - other.y);
@@ -718,6 +779,7 @@ export const ChatRoom = (): JSX.Element => {
               .attr('ry', 5)
               .attr('fill', d => {
                 if (d === selectedNode) return '#ffd54f';
+                // 使用類型斷言訪問 type 屬性
                 return d.type === 'external' ? '#e0f7fa' : '#b3e5fc';
               })
               .attr('stroke', '#333')
@@ -766,7 +828,7 @@ export const ChatRoom = (): JSX.Element => {
             
             // 自動縮放適應所有節點
             const padding = 50;
-            const bounds = {
+            const bounds: Bounds = {
               minX: d3.min(nodes, d => d.x - (d.width || 180) / 2) || 0,
               maxX: d3.max(nodes, d => d.x + (d.width || 180) / 2) || dimensions.width,
               minY: d3.min(nodes, d => d.y - (d.height || 80) / 2) || 0,
@@ -780,13 +842,12 @@ export const ChatRoom = (): JSX.Element => {
             const translateX = (dimensions.width - (bounds.maxX - bounds.minX) * scale) / 2 - bounds.minX * scale;
             const translateY = (dimensions.height - (bounds.maxY - bounds.minY) * scale) / 2 - bounds.minY * scale;
             
-            svg.call(zoom.transform, d3.zoomIdentity
+            // 修復 transform 相關錯誤
+            svg.call(zoom.transform as any, d3.zoomIdentity
               .translate(translateX, translateY)
               .scale(scale));
-          } else {
-            throw new Error('SCD 數據缺少有效的節點');
           }
-        } catch (error) {
+        } catch (error: any) {
           console.error('渲染 SCD 圖錯誤:', error);
           svg.append('text')
             .attr('x', dimensions.width / 2)
@@ -837,7 +898,7 @@ export const ChatRoom = (): JSX.Element => {
     }
   };
 
-  // 修改 useEffect 滾動邏輯
+  // 修改 useEffect 滾动邏輯
   useEffect(() => {
     if (isAtBottom) {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -870,16 +931,28 @@ export const ChatRoom = (): JSX.Element => {
           : "bg-blue-100 rounded-l-lg rounded-br-lg mr-2"
       } p-4 relative`}>
         
-        {/* 圖片區塊 - 這裡需要改正 */}
-        {msg.images && msg.images.length > 0 && (
+        {/* 圖片顯示區塊 - 處理各種可能的格式 */}
+        {(msg.images && msg.images.length > 0 || (msg.img_id && msg.img_id.length > 0)) && (
           <div className="flex flex-wrap gap-2 mb-3">
-            {msg.images.map((image, i) => (
+            {/* 先顯示 images 陣列中的圖片 */}
+            {msg.images?.map((image, i) => (
               <div key={`img-${image.fileId}-${i}`} className="relative group">
                 <img 
                   src={image.base64 ? `data:image/jpeg;base64,${image.base64}` : getImageUrl(image.fileId)}
                   alt={image.filename || `圖片 ${i+1}`}
                   className="max-w-[150px] max-h-[150px] rounded-lg object-cover cursor-pointer hover:opacity-90"
                   onClick={() => window.open(getImageUrl(image.fileId), '_blank')}
+                />
+              </div>
+            ))}
+            {/* 如果沒有 images，但有 img_id，也顯示圖片 */}
+            {!msg.images && msg.img_id?.map((imgId, i) => (
+              <div key={`img-id-${imgId}-${i}`} className="relative group">
+                <img 
+                  src={getImageUrl(imgId)}
+                  alt={`圖片 ${i+1}`}
+                  className="max-w-[150px] max-h-[150px] rounded-lg object-cover cursor-pointer hover:opacity-90"
+                  onClick={() => window.open(getImageUrl(imgId), '_blank')}
                 />
               </div>
             ))}
@@ -981,75 +1054,40 @@ export const ChatRoom = (): JSX.Element => {
     }
   };
 
+  // 修改點擊外部區域關閉選單的邏輯
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      // 檢查是否點擊到模型選單
+      const modelMenuElement = document.querySelector('.model-options-menu');
+      const isClickOnModelMenu = modelMenuElement && modelMenuElement.contains(event.target as Node);
+      
+      // 如果沒有點擊在模型選單上，則關閉它
+      if (!isClickOnModelMenu && showModelOptions) {
+        setShowModelOptions(false);
+      }
+    };
+    
+    document.addEventListener('mousedown', handleClickOutside);
+    
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showModelOptions]); // 保持依賴項一致
+
   return (
     <div className="bg-[#6683d2] flex flex-col items-center w-full min-h-screen px-4 md:px-8">
-      <style>
-        {`
-          @import url('https://fonts.googleapis.com/css2?family=Kavoon&display=swap');
-          .font-kavoon {
-            font-family: 'Kavoon', cursive;
-          }
-          @import url('https://fonts.googleapis.com/css2?family=Inknut+Antiqua:wght@400;700&display=swap');
-          .font-Inknut_Antiqua-Regular {
-            font-family: 'Inknut Antiqua', serif;
-          }
-          
-          /* 新增的打字動畫樣式 */
-          .typing-indicator {
-            display: inline-flex;
-            align-items: center;
-            background-color: rgba(181, 209, 225, 0.15);
-            border-radius: 1rem;
-            padding: 0.5rem 0.75rem;
-          }
-          
-          .typing-dot {
-            display: inline-block;
-            width: 0.5rem;
-            height: 0.5rem;
-            margin: 0 0.15rem;
-            background-color: #6683d2;
-            border-radius: 50%;
-            opacity: 0.7;
-          }
-          
-          .typing-dot:nth-child(1) {
-            animation: typing-animation 1.4s infinite ease-in-out -0.32s;
-          }
-          
-          .typing-dot:nth-child(2) {
-            animation: typing-animation 1.4s infinite ease-in-out -0.16s;
-          }
-          
-          .typing-dot:nth-child(3) {
-            animation: typing-animation 1.4s infinite ease-in-out;
-          }
-          
-          @keyframes typing-animation {
-            0%, 80%, 100% { 
-              transform: scale(0.7);
-            }
-            40% { 
-              transform: scale(1);
-              opacity: 1;
-            }
-          }
-
-          /* 這些樣式已經包含在上面的 JSX 中，使用了 Tailwind 的 utility classes */
-          .group:hover .group-hover\:opacity-100 {
-            opacity: 1;
-          }
-          .opacity-0 {
-            opacity: 0;
-          }
-          .transition-opacity {
-            transition-property: opacity;
-            transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-            transition-duration: 150ms;
-          }
-        `}
-      </style>
-
+      {/* 隱藏的檔案輸入元素 */}
+      <input
+        type="file"
+        id="file-upload-input"
+        ref={fileInputRef}
+        className="hidden"
+        multiple
+        accept="image/*"
+        onChange={(e) => handleFileUpload(e.target.files)}
+      />
+      
+      <div className="w-full relative z-10"></div>
       <div className="w-full relative z-10">
         <div className="w-full bg-[#B5D1E1] py-6 px-8 flex items-center shadow-md fixed top-0 left-0 right-0 rounded-b-[28px] ">
           <div
@@ -1288,45 +1326,41 @@ export const ChatRoom = (): JSX.Element => {
                     onDragLeave={handleDragLeave}
                     onDrop={handleDrop}
                   >
-                    <input
-                      type="file"
-                      ref={fileInputRef}
-                      className="hidden"
-                      accept="image/*"
-                      onChange={(e) => handleFileUpload(e.target.files)}
-                    />
-                    <div className="flex items-center flex-1">
-                      <button
-                        onClick={() => fileInputRef.current?.click()}
-                        className="text-gray-700 text-2xl hover:text-gray-900 cursor-pointer px-2"
-                      >
-                        #
-                      </button>
-                      <textarea
-                        value={question}
-                        onChange={(e) => setQuestion(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            if (e.shiftKey) {
-                              // Shift + Enter 換行 - textarea 會自動處理
-                              return;
-                            } else if (question.trim() && !isLoading) {
-                              // 只有 Enter 發送
-                              e.preventDefault();
-                              handleSendMessage();
-                            }
+                    {/* 上傳檔案按鈕 */}
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        document.getElementById('file-upload-input')?.click();
+                      }}
+                      className="text-gray-700 hover:text-gray-900 cursor-pointer px-2 flex items-center flex-shrink-0"
+                      type="button"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                    </button>
+
+                    {/* 保持 textarea */}
+                    <textarea
+                      value={question}
+                      onChange={(e) => setQuestion(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          if (e.shiftKey) {
+                            // Shift + Enter 換行，不做處理
+                            return;
+                          } else if (question.trim() && !isLoading) {
+                            e.preventDefault();
+                            handleSendMessage();
                           }
-                        }}
-                        className="ml-2 w-full bg-transparent focus:outline-none text-lg resize-none"
-                        placeholder={isLoading ? "Model is responding..." : "Type your message (Shift + Enter for new line)..."}
-                        rows={1}
-                        style={{ 
-                          height: 'auto',
-                          minHeight: '24px',
-                          maxHeight: '120px'
-                        }}
-                      />
-                    </div>
+                        }
+                      }}
+                      className="ml-2 flex-1 bg-transparent focus:outline-none text-lg resize-none"
+                      placeholder={isLoading ? "Model is responding..." : "Type your message (Shift + Enter for new line)..."}
+                    />
+
+                    {/* 發送按鈕 */}
                     <button
                       onClick={() => {
                         if (!isLoading && question.trim()) {
@@ -1334,6 +1368,7 @@ export const ChatRoom = (): JSX.Element => {
                         }
                       }}
                       className={sendButtonStyle}
+                      type="button"
                     >
                       <img
                         className={sendButtonImageStyle}
@@ -1343,7 +1378,7 @@ export const ChatRoom = (): JSX.Element => {
                     </button>
                   </div>
 
-                  {/* 新增圖片預覽區域 */}
+                  {/* 上傳圖片預覽區域 */}
                   {uploadingImages.map((image) => (
                     <div key={image.id} className="flex items-center gap-2 px-2 py-1 bg-gray-100 rounded-lg">
                       {image.preview && (
@@ -1357,11 +1392,28 @@ export const ChatRoom = (): JSX.Element => {
                       <button
                         onClick={() => handleDeleteImage(image.id)}
                         className="ml-auto text-gray-500 hover:text-gray-700"
+                        type="button"
                       >
                         ×
                       </button>
                     </div>
                   ))}
+
+                  {/* 顯示當前選擇的模型 */}
+                  <div className="flex items-center text-xs text-gray-500 mt-1 ml-2">
+                    <span>圖片生成模型: </span>
+                    <span className="font-semibold ml-1">
+                      {selectedModel === "1.5" ? "Stable-Diffusion 1.5" : "Stable-Diffusion 3.5"}
+                    </span>
+                    {/* 簡單的模型選擇按鈕 */}
+                    <button
+                      onClick={() => setSelectedModel(selectedModel === "1.5" ? "3.5" : "1.5")}
+                      className="ml-2 text-blue-500 hover:text-blue-700 text-xs"
+                      type="button"
+                    >
+                      切換
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>

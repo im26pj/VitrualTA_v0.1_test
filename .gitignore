@@ -10,11 +10,12 @@ lerna-debug.log*
 **/node_modules/
 dist
 dist-ssr
-*.local
+*.local 
 
+**/__pycache__/
 
+**/.graphenv/
 
-# Editor directories and files
 .vscode/*
 !.vscode/extensions.json
 .idea

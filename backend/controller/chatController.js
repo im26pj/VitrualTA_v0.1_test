@@ -10,6 +10,120 @@ const mongoose = require('mongoose');
 const fs = require('fs');
 const path = require('path');
 
+// 引入 child_process 來運行 Python 腳本
+const { spawn } = require('child_process');
+
+// 實現直接調用 Python 腳本的函數
+const spawn_1 = async function(prompt, userId, chat_id) {
+  return new Promise((resolve, reject) => {
+    // 獲取 Python 腳本的完整路徑
+    const scriptPath = path.join(__dirname, '../stable-diffusion/diffusion_1.5.py');
+    
+    // 修正：虛擬環境在 stable-diffusion 資料夾下
+    const pythonExecutable = path.join(__dirname, '../stable-diffusion/.graphenv/Scripts/python.exe');
+    
+    console.log(`執行 Python 腳本: ${scriptPath}`);
+    console.log(`使用 Python 路徑: ${pythonExecutable}`);
+    console.log(`參數: ${prompt}, ${userId}, ${chat_id}`);
+    
+    // 直接執行 Python 腳本
+    const pythonProcess = spawn(
+      pythonExecutable,
+      [scriptPath, prompt, userId, chat_id],
+      {
+        env: { ...process.env }
+      }
+    );
+    
+    let outputData = '';
+    let errorData = '';
+    
+    // 收集標準輸出
+    pythonProcess.stdout.on('data', (data) => {
+      outputData += data.toString();
+    });
+    
+    // 收集錯誤輸出
+    pythonProcess.stderr.on('data', (data) => {
+      errorData += data.toString();
+      console.error(`Python 腳本錯誤: ${data}`);
+    });
+    
+    // 腳本執行完畢後處理結果
+    pythonProcess.on('close', (code) => {
+      if (code !== 0) {
+        console.error(`Python 腳本執行失敗 (退出碼 ${code}): ${errorData}`);
+        reject(new Error(`圖片生成失敗: ${errorData}`));
+        return;
+      }
+      
+      try {
+        // 解析 Python 輸出的 JSON
+        const result = JSON.parse(outputData.trim());
+        resolve(result);
+      } catch (err) {
+        console.error('無法解析 Python 輸出:', outputData);
+        reject(new Error(`解析圖片生成結果失敗: ${err.message}`));
+      }
+    });
+  });
+};
+
+// 類似地實現 spawn_3 函數
+const spawn_3 = async function(prompt, userId, chat_id) {
+  return new Promise((resolve, reject) => {
+    const scriptPath = path.join(__dirname, '../stable-diffusion/diffusion_3.5.py');
+    
+    // 修正：使用相同的虛擬環境
+    const pythonExecutable = path.join(__dirname, '../stable-diffusion/.graphenv/Scripts/python.exe');
+    
+    console.log(`執行 Python 腳本: ${scriptPath}`);
+    console.log(`使用 Python 路徑: ${pythonExecutable}`);
+    console.log(`參數: ${prompt}, ${userId}, ${chat_id}`);
+    
+    // 直接執行 Python 腳本
+    const pythonProcess = spawn(
+      pythonExecutable,
+      [scriptPath, prompt, userId, chat_id],
+      {
+        env: { ...process.env }
+      }
+    );
+    
+    let outputData = '';
+    let errorData = '';
+    
+    // 收集標準輸出
+    pythonProcess.stdout.on('data', (data) => {
+      outputData += data.toString();
+    });
+    
+    // 收集錯誤輸出
+    pythonProcess.stderr.on('data', (data) => {
+      errorData += data.toString();
+      console.error(`Python 腳本錯誤: ${data}`);
+    });
+    
+    // 腳本執行完畢後處理結果
+    pythonProcess.on('close', (code) => {
+      if (code !== 0) {
+        console.error(`Python 腳本執行失敗 (退出碼 ${code}): ${errorData}`);
+        reject(new Error(`圖片生成失敗: ${errorData}`));
+        return;
+      }
+      
+      try {
+        // 解析 Python 輸出的 JSON
+        const result = JSON.parse(outputData.trim());
+        resolve(result);
+      } catch (err) {
+        console.error('無法解析 Python 輸出:', outputData);
+        reject(new Error(`解析圖片生成結果失敗: ${err.message}`));
+      }
+    });
+  });
+};
+
 // 配置 multer 存儲
 const storage = multer.memoryStorage();
 const upload = multer({ 
@@ -27,7 +141,7 @@ const upload = multer({
 }).array('images', 5); // 允許最多上傳5張圖片
 
 // 1. 首先添加內部函數
-async function generateGraphInternal(content, userId, chat_id, graph_type) {
+async function generateGraphInternal(content, userId, chat_id, graph_type , model = "1.5") {
   let prompt_generate = '';
   if(graph_type.toUpperCase() == "MINDMAP") {   
     prompt_generate = `
@@ -94,6 +208,98 @@ async function generateGraphInternal(content, userId, chat_id, graph_type) {
     描述：
     ${content}
     `;
+  }else if (graph_type.toUpperCase() == "OTHER"){
+    console.log("進入 Diffusion 生成邏輯function");
+
+    if (model == "3.5"){
+      prompt_generate =`請根據以下使用者描述的內容，完善並擴展描述細節，並且回傳英文回復且不能超過256個Token
+      描述：
+      ${content}
+      `
+      const response = await ollama.chat({
+      model: 'llama3.2-vision:11b',
+      messages: [
+        {
+          role: 'user',
+          content: prompt_generate
+        }
+      ],
+      stream: false
+      });
+
+      let fullResponse = response.message.content;
+      // 將 fullResponse 傳入 diffusion 3.5 腳本
+      console.log(`生成圖片的優化提示 (3.5模型): ${fullResponse}`);
+      
+      try {
+        // 調用 spawn_3 函數，它會執行 Python 腳本並返回包含圖片 ID 的結果
+        const imageResult = await spawn_3(fullResponse, userId, chat_id);
+        
+        // 檢查生成結果
+        if (imageResult && imageResult._id) {
+          console.log(`圖片生成成功 (3.5模型)，ID: ${imageResult._id}`);
+          
+          // 返回圖片結果 - Python 腳本已經把圖片存入 GridFS，所以這裡不需要再存
+          return {
+            success: true,
+            imageId: imageResult._id,
+            url: `/api/images/${imageResult._id}`,
+            model: "3.5"  // 添加模型資訊，方便前端區分
+          };
+        } else {
+          throw new Error('圖片生成失敗 (3.5模型)');
+        }
+      } catch (error) {
+        console.error('Diffusion 3.5 圖片生成錯誤:', error);
+        throw error;
+      }
+    }
+    // 修改 1.5 模型部分的代碼
+    else if (model == "1.5") 
+    {
+      prompt_generate = `請根據以下使用者描述的內容，完善並擴展描述細節，並且回傳英文回復且不能超過72個Token
+      描述：
+      ${content}
+      `
+      const response = await ollama.chat({
+        model: 'llama3.2-vision:11b',
+        messages: [
+          {
+            role: 'user',
+            content: prompt_generate
+          }
+        ],
+        stream: false
+      });
+
+      let fullResponse = response.message.content;
+      // 將 fullResponse 傳入 diffusion 1.5 腳本
+      console.log(`生成圖片的優化提示: ${fullResponse}`);
+      
+      try {
+        // 調用 spawn_1 函數，它會執行 Python 腳本並返回包含圖片 ID 的結果
+        const imageResult = await spawn_1(fullResponse, userId, chat_id);
+        
+        // 檢查生成結果
+        if (imageResult && imageResult._id) {
+          console.log(`圖片生成成功，ID: ${imageResult._id}`);
+          
+          // 返回圖片結果 - Python 腳本已經把圖片存入 GridFS，所以這裡不需要再存
+          return {
+            success: true,
+            imageId: imageResult._id,
+            url: `/api/images/${imageResult._id}`
+          };
+        } else {
+          throw new Error('圖片生成失敗');
+        }
+      } catch (error) {
+        console.error('Diffusion 1.5 圖片生成錯誤:', error);
+        throw error;
+      }
+    }
+
+
   }
 
 
@@ -174,8 +380,9 @@ async function generateGraphInternal(content, userId, chat_id, graph_type) {
 }
 
 // 2. 修改原本的 API endpoint，使用內部函數
+// 生成json 給前端渲染
 exports.generateGraph = async (req, res) => {
-  const { isVisitor, chat_id, content , graph_type} = req.body;
+  const { isVisitor, chat_id, content , graph_type , model} = req.body;
   const authHeader = req.headers.authorization;
 
   try {
@@ -190,7 +397,7 @@ exports.generateGraph = async (req, res) => {
       userId = decoded.id;
     }
 
-    const result = await generateGraphInternal(content, userId, chat_id , graph_type);
+    const result = await generateGraphInternal(content, userId, chat_id , graph_type , model);
     
     return res.json({
       success: true,
@@ -207,7 +414,7 @@ exports.generateGraph = async (req, res) => {
 };
 
 exports.chatWithOllama = async (req, res) => {
-  const { conversationHistory, isVisitor, chat_id, isNewChat, img_64, img_id } = req.body;
+  const { conversationHistory, isVisitor, chat_id, isNewChat, img_64, img_id , model } = req.body;
   const authHeader = req.headers.authorization;
 
   if (!conversationHistory || !Array.isArray(conversationHistory)) {
@@ -399,14 +606,15 @@ exports.chatWithOllama = async (req, res) => {
       .slice()
       .reverse()
       .find(msg => msg.role === 'user')?.content || '';
-    
+    //用離紀錄圖片id
+    let _id = "";
+
+
     //let question = "生成一張心智圖以erp為主題";
     //檢查用戶是否要生成圖片
     if(question.includes("生成") || question.toUpperCase().includes("GENERATE") || 
        question.includes("畫") || question.toUpperCase().includes("DRAW") ||
-       question.includes("繪製") || question.toUpperCase().includes("DRAWING") ||
-       question.includes("圖") || question.toUpperCase().includes("PICTURE") || 
-       question.toUpperCase().includes("IMAGE")) 
+       question.includes("繪製") || question.toUpperCase().includes("DRAWING") )
     { 
       console.log("進入要求生成圖片邏輯處理");
       
@@ -454,6 +662,45 @@ exports.chatWithOllama = async (req, res) => {
           res.write('data: [DONE]\n\n');
           return res.end();
 
+      }
+      else{
+        console.log("其他圖片");
+        const result = await generateGraphInternal(question, userId, chat_id, "OTHER" , model);
+        
+        // 添加此段代碼：將圖片ID存入資料庫，但作為新訊息，不替換原先的回覆
+        if (!isVisitor && userId) {
+          try {
+            let chatDoc = await Chat.findOne({ chat_id, userId });
+            if (chatDoc) {
+              // 添加一條新的圖片訊息，不修改之前的回覆
+              chatDoc.chat_history.push({
+                role: 'assistant',
+                content: '已為您生成圖片',
+                img_id: [{ "0": result.imageId || result._id, "_id": result.imageId || result._id }],
+                timestamp: new Date()
+              });
+              
+              chatDoc.updated_at = new Date();
+              await chatDoc.save();
+              console.log('AI生成圖片已儲存至對話記錄:', result.imageId || result._id);
+            }
+          } catch (dbErr) {
+            console.error('儲存AI生成圖片到對話記錄失敗:', dbErr);
+          }
+        }
+        
+        // 修改前端回應，告知這是額外的圖片訊息
+        res.write(`data: ${JSON.stringify({ 
+          type: 'image', 
+          isAdditionalMessage: true,  // 新增標記，表示這是額外的訊息
+          imageId: result.imageId || result._id,
+          image: {
+            fileId: result.imageId || result._id,
+            filename: `AI生成圖片 ${new Date().toLocaleTimeString()}`
+          }
+        })}\n\n`);
+        res.write('data: [DONE]\n\n');
+        return res.end();
       }
       
     }

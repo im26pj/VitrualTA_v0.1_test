@@ -192,6 +192,16 @@ export const fetchSSEStream = async (
               } else if (parsed.type === 'graph') {
                 // 直接傳遞完整的 graph 物件
                 onMessage(parsed);
+              } else if (parsed.type === 'image') {
+                // 處理圖片類型的回應
+                onMessage({
+                  type: 'image',
+                  imageId: parsed.imageId,
+                  image: parsed.image || {
+                    fileId: parsed.imageId,
+                    filename: `AI生成圖片 ${new Date().toLocaleTimeString()}`
+                  }
+                });
               } else if (parsed.content) {
                 onMessage(parsed.content);
               }

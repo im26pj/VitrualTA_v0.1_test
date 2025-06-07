@@ -1,0 +1,7 @@
+torch>=2.6.0+cu124 --extra-index-url https://download.pytorch.org/whl/cu124
+torchvision --extra-index-url https://download.pytorch.org/whl/cu124
+torchaudio --extra-index-url https://download.pytorch.org/whl/cu124
+diffusers>=0.33.1
+bitsandbytes>=0.46.0
+pymongo>=4.13.0
+Pillow>=11.2.1
