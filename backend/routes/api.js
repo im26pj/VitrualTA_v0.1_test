@@ -12,7 +12,6 @@ router.get('/chat/:chatId', chatController.getChatById);
 router.post('/upload/image', chatController.uploadImage);
 router.delete('/images/:fileId', chatController.deleteImage);
 router.get('/images/:fileId', chatController.getImage); // 添加圖片路由
-router.post('/generate-graph', chatController.generateGraph); // 添加生成圖表路由
 router.delete('/chat/:chatId', chatController.deleteChat); // 添加刪除對話路由
 
 module.exports = router;

@@ -77,3 +77,24 @@ ollama執行
 cloudflared tunnel --url http://localhost:3000
 
 chatroom_withoutlogin頁面 -> vtuber按鈕看要移除還是改成按下後提示登入才可以使用
+
+壓力測試
+k6 run pressure_test.js
+k6 run pressure_test.js > k6_output.log 2>&1
+
+啟用除錯訊息
+  顯示 userController 的除錯訊息
+  set DEBUG=app:userController node ./bin/www
+
+  顯示所有 app: 開頭的除錯訊息
+  set DEBUG=app:* node ./bin/www
+
+  顯示所有除錯訊息
+  set DEBUG=* node ./bin/www
+
+
+非阻塞部分
+  Node.js 本身就是基於事件迴圈和非阻塞 I/O 模型設計，但在檔案讀寫、網路請求、資撩庫驅動如果不使用異步操作(EX: fs.readFileSync)
+  就會使Node.js事件迴圈被阻塞，引此採用大量一步I/O操作(EX: async/awiat處理請求)
+
+對話紀錄資料庫查詢部分有做LIFO

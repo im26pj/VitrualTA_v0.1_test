@@ -9,6 +9,8 @@ const { GridFSBucket, ObjectId } = require('mongodb');
 const mongoose = require('mongoose');
 const fs = require('fs');
 const path = require('path');
+const debug = require('debug')('app:userController'); // 引入 debug 並設定命名空間
+
 
 // 引入 child_process 來運行 Python 腳本
 const { spawn } = require('child_process');
@@ -22,10 +24,13 @@ const spawn_1 = async function(prompt, userId, chat_id) {
     // 修正：虛擬環境在 stable-diffusion 資料夾下
     const pythonExecutable = path.join(__dirname, '../stable-diffusion/.graphenv/Scripts/python.exe');
     
-    console.log(`執行 Python 腳本: ${scriptPath}`);
-    console.log(`使用 Python 路徑: ${pythonExecutable}`);
-    console.log(`參數: ${prompt}, ${userId}, ${chat_id}`);
-    
+    //console.log(`執行 Python 腳本: ${scriptPath}`);
+    //console.log(`使用 Python 路徑: ${pythonExecutable}`);
+    //console.log(`參數: ${prompt}, ${userId}, ${chat_id}`);
+    debug(`執行 Python 腳本: ${scriptPath}`);
+    debug(`使用 Python 路徑: ${pythonExecutable}`);
+    debug(`參數: ${prompt}, ${userId}, ${chat_id}`);
+
     // 直接執行 Python 腳本
     const pythonProcess = spawn(
       pythonExecutable,
@@ -46,13 +51,15 @@ const spawn_1 = async function(prompt, userId, chat_id) {
     // 收集錯誤輸出
     pythonProcess.stderr.on('data', (data) => {
       errorData += data.toString();
-      console.error(`Python 腳本錯誤: ${data}`);
+      //console.error(`Python 腳本錯誤: ${data}`);
+      debug(`Python 腳本錯誤: ${data}`);
     });
     
     // 腳本執行完畢後處理結果
     pythonProcess.on('close', (code) => {
       if (code !== 0) {
-        console.error(`Python 腳本執行失敗 (退出碼 ${code}): ${errorData}`);
+        //console.error(`Python 腳本執行失敗 (退出碼 ${code}): ${errorData}`);
+        debug(`Python 腳本執行失敗 (退出碼 ${code}): ${errorData}`);
         reject(new Error(`圖片生成失敗: ${errorData}`));
         return;
       }
@@ -62,7 +69,8 @@ const spawn_1 = async function(prompt, userId, chat_id) {
         const result = JSON.parse(outputData.trim());
         resolve(result);
       } catch (err) {
-        console.error('無法解析 Python 輸出:', outputData);
+        //console.error('無法解析 Python 輸出:', outputData);
+        debug('無法解析 Python 輸出:', outputData);
         reject(new Error(`解析圖片生成結果失敗: ${err.message}`));
       }
     });
@@ -77,10 +85,13 @@ const spawn_3 = async function(prompt, userId, chat_id) {
     // 修正：使用相同的虛擬環境
     const pythonExecutable = path.join(__dirname, '../stable-diffusion/.graphenv/Scripts/python.exe');
     
-    console.log(`執行 Python 腳本: ${scriptPath}`);
-    console.log(`使用 Python 路徑: ${pythonExecutable}`);
-    console.log(`參數: ${prompt}, ${userId}, ${chat_id}`);
-    
+    //console.log(`執行 Python 腳本: ${scriptPath}`);
+    //console.log(`使用 Python 路徑: ${pythonExecutable}`);
+    //console.log(`參數: ${prompt}, ${userId}, ${chat_id}`);
+    debug(`執行 Python 腳本: ${scriptPath}`);
+    debug(`使用 Python 路徑: ${pythonExecutable}`);
+    debug(`參數: ${prompt}, ${userId}, ${chat_id}`);
+
     // 直接執行 Python 腳本
     const pythonProcess = spawn(
       pythonExecutable,
@@ -101,13 +112,15 @@ const spawn_3 = async function(prompt, userId, chat_id) {
     // 收集錯誤輸出
     pythonProcess.stderr.on('data', (data) => {
       errorData += data.toString();
-      console.error(`Python 腳本錯誤: ${data}`);
+      //console.error(`Python 腳本錯誤: ${data}`);
+      debug(`Python 腳本錯誤: ${data}`);
     });
     
     // 腳本執行完畢後處理結果
     pythonProcess.on('close', (code) => {
       if (code !== 0) {
-        console.error(`Python 腳本執行失敗 (退出碼 ${code}): ${errorData}`);
+        //console.error(`Python 腳本執行失敗 (退出碼 ${code}): ${errorData}`);
+        debug(`Python 腳本執行失敗 (退出碼 ${code}): ${errorData}`);
         reject(new Error(`圖片生成失敗: ${errorData}`));
         return;
       }
@@ -117,7 +130,8 @@ const spawn_3 = async function(prompt, userId, chat_id) {
         const result = JSON.parse(outputData.trim());
         resolve(result);
       } catch (err) {
-        console.error('無法解析 Python 輸出:', outputData);
+        //console.error('無法解析 Python 輸出:', outputData);
+        debug('無法解析 Python 輸出:', outputData);
         reject(new Error(`解析圖片生成結果失敗: ${err.message}`));
       }
     });
@@ -155,7 +169,8 @@ async function generateGraphInternal(content, userId, chat_id, graph_type , mode
     `;
   }
   else if(graph_type.toUpperCase() == "SCD") {
-    console.log("進入 SCD 生成邏輯function");
+    //console.log("進入 SCD 生成邏輯function");
+    debug("進入 SCD 生成邏輯function");
     prompt_generate = `
     請根據下面的需求與描述，建立一個簡單的系統上下文圖，使用繁體中文描述，並回傳乾淨的 JSON，不要包含任何其他說明文字。  
     JSON 格式必須包含兩個屬性：  
@@ -209,8 +224,8 @@ async function generateGraphInternal(content, userId, chat_id, graph_type , mode
     ${content}
     `;
   }else if (graph_type.toUpperCase() == "OTHER"){
-    console.log("進入 Diffusion 生成邏輯function");
-
+    //console.log("進入 Diffusion 生成邏輯function");
+    debug("進入 Diffusion 生成邏輯function");
     if (model == "3.5"){
       prompt_generate =`請根據以下使用者描述的內容，完善並擴展描述細節，並且回傳英文回復且不能超過256個Token
       描述：
@@ -229,16 +244,16 @@ async function generateGraphInternal(content, userId, chat_id, graph_type , mode
 
       let fullResponse = response.message.content;
       // 將 fullResponse 傳入 diffusion 3.5 腳本
-      console.log(`生成圖片的優化提示 (3.5模型): ${fullResponse}`);
-      
+      //console.log(`生成圖片的優化提示 (3.5模型): ${fullResponse}`);
+      debug(`生成圖片的優化提示 (3.5模型): ${fullResponse}`);
       try {
         // 調用 spawn_3 函數，它會執行 Python 腳本並返回包含圖片 ID 的結果
         const imageResult = await spawn_3(fullResponse, userId, chat_id);
         
         // 檢查生成結果
         if (imageResult && imageResult._id) {
-          console.log(`圖片生成成功 (3.5模型)，ID: ${imageResult._id}`);
-          
+          //console.log(`圖片生成成功 (3.5模型)，ID: ${imageResult._id}`);
+          debug(`圖片生成成功 (3.5模型)，ID: ${imageResult._id}`);
           // 返回圖片結果 - Python 腳本已經把圖片存入 GridFS，所以這裡不需要再存
           return {
             success: true,
@@ -250,7 +265,8 @@ async function generateGraphInternal(content, userId, chat_id, graph_type , mode
           throw new Error('圖片生成失敗 (3.5模型)');
         }
       } catch (error) {
-        console.error('Diffusion 3.5 圖片生成錯誤:', error);
+        //console.error('Diffusion 3.5 圖片生成錯誤:', error);
+        debug('Diffusion 3.5 圖片生成錯誤:', error);
         throw error;
       }
     }
@@ -274,16 +290,16 @@ async function generateGraphInternal(content, userId, chat_id, graph_type , mode
 
       let fullResponse = response.message.content;
       // 將 fullResponse 傳入 diffusion 1.5 腳本
-      console.log(`生成圖片的優化提示: ${fullResponse}`);
-      
+      //console.log(`生成圖片的優化提示: ${fullResponse}`);
+      debug(`生成圖片的優化提示: ${fullResponse}`);
       try {
         // 調用 spawn_1 函數，它會執行 Python 腳本並返回包含圖片 ID 的結果
         const imageResult = await spawn_1(fullResponse, userId, chat_id);
         
         // 檢查生成結果
         if (imageResult && imageResult._id) {
-          console.log(`圖片生成成功，ID: ${imageResult._id}`);
-          
+          //console.log(`圖片生成成功，ID: ${imageResult._id}`);
+          debug(`圖片生成成功，ID: ${imageResult._id}`);
           // 返回圖片結果 - Python 腳本已經把圖片存入 GridFS，所以這裡不需要再存
           return {
             success: true,
@@ -294,7 +310,8 @@ async function generateGraphInternal(content, userId, chat_id, graph_type , mode
           throw new Error('圖片生成失敗');
         }
       } catch (error) {
-        console.error('Diffusion 1.5 圖片生成錯誤:', error);
+        //console.error('Diffusion 1.5 圖片生成錯誤:', error);
+        debug('Diffusion 1.5 圖片生成錯誤:', error);
         throw error;
       }
     }
@@ -363,8 +380,9 @@ async function generateGraphInternal(content, userId, chat_id, graph_type , mode
   } catch (error) {
     // 使用函数的参数来追踪重试次数
     async function retryGenerate(retryCount = 1) {
-      console.error(`generateGraphInternal error ${retryCount}:`, error);
-      
+      //console.error(`generateGraphInternal error ${retryCount}:`, error);
+      debug(`generateGraphInternal error ${retryCount}:`, error);
+
       if (retryCount < 2) {
         try {
           return await generateGraphInternal(content, userId, chat_id, graph_type);
@@ -405,7 +423,8 @@ exports.generateGraph = async (req, res) => {
     });
 
   } catch (err) {
-    console.error('生成圖表錯誤:', err);
+    //console.error('生成圖表錯誤:', err);
+    debug('生成圖表錯誤:', err);
     return res.status(500).json({ 
       success: false, 
       error: err.message 
@@ -429,7 +448,8 @@ exports.chatWithOllama = async (req, res) => {
       const decoded = jwt.verify(token, JWT_SECRET);
       userId = decoded.id;
     } catch (error) {
-      console.error('Token 驗證失敗:', error);
+      //console.error('Token 驗證失敗:', error);
+      debug('Token 驗證失敗:', error);
     }
   }
 
@@ -488,7 +508,8 @@ exports.chatWithOllama = async (req, res) => {
               images // 直接傳遞 base64 字串陣列
             };
           } catch (error) {
-            console.error('圖片處理錯誤:', error);
+            //console.error('圖片處理錯誤:', error);
+            debug('圖片處理錯誤:', error);
             return msg;
           }
         }
@@ -524,8 +545,8 @@ exports.chatWithOllama = async (req, res) => {
       stream: true
     };
 
-    console.log('Ollama Request:', JSON.stringify(ollamaRequest, null, 2));
-
+    //console.log('Ollama Request:', JSON.stringify(ollamaRequest, null, 2));
+    debug('Ollama Request:', JSON.stringify(ollamaRequest, null, 2));
     // 準備 assistant 訊息
     let assistantMessage = {
       role: 'assistant',
@@ -592,9 +613,11 @@ exports.chatWithOllama = async (req, res) => {
         chatDoc.updated_at = new Date();
         await chatDoc.save();
         
-        console.log('對話已儲存:', chatDoc);
+        //console.log('對話已儲存:', chatDoc);
+        debug('對話已儲存:', chatDoc);
       } catch (dbErr) {
-        console.error('儲存對話失敗:', dbErr);
+        //console.error('儲存對話失敗:', dbErr);
+        debug('儲存對話失敗:', dbErr);
         res.write(`data: ${JSON.stringify({ error: '儲存對話失敗' })}\n\n`);
       }
     }
@@ -616,12 +639,12 @@ exports.chatWithOllama = async (req, res) => {
        question.includes("畫") || question.toUpperCase().includes("DRAW") ||
        question.includes("繪製") || question.toUpperCase().includes("DRAWING") )
     { 
-      console.log("進入要求生成圖片邏輯處理");
-      
+      //console.log("進入要求生成圖片邏輯處理");
+      debug("進入要求生成圖片邏輯處理");
       if(question.toUpperCase().includes("MINDMAP") || question.includes("心智") || question.includes("新智") || question.includes("思維導圖") )
       {
-        console.log("進入要求 MINDMAP"); 
-
+        //console.log("進入要求 MINDMAP"); 
+        debug("進入要求 MINDMAP");
         try {
           const result = await generateGraphInternal(question, userId, chat_id, "MINDMAP");
           // 使用 SSE 格式發送圖表數據
@@ -630,7 +653,8 @@ exports.chatWithOllama = async (req, res) => {
             content: result
           })}\n\n`);
         } catch (error) {
-          console.error('圖表生成失敗:', error);
+          //console.error('圖表生成失敗:', error);
+          debug('圖表生成失敗:', error);
           res.write(`data: ${JSON.stringify({
             type: 'error',
             content: '圖表生成失敗'
@@ -643,8 +667,8 @@ exports.chatWithOllama = async (req, res) => {
       question.toUpperCase().includes("CONTEXTDIAGRAM") || question.toUpperCase().includes("CONTEXT DIAGRAM") ||
       question.toUpperCase().includes("SYSTEMCONTEXTDIAGRAM") || question.includes("系統") || question.includes("環境"))
       {
-        console.log("進入要求 SCD");
-
+        //console.log("進入要求 SCD");
+        debug("進入要求 SCD");
           try {
             const result = await generateGraphInternal(question, userId, chat_id, "SCD");
             // 使用 SSE 格式發送圖表數據
@@ -653,7 +677,8 @@ exports.chatWithOllama = async (req, res) => {
               content: result
             })}\n\n`);
           } catch (error) {
-            console.error('圖表生成失敗:', error);
+            //console.error('圖表生成失敗:', error);
+            debug('圖表生成失敗:', error);
             res.write(`data: ${JSON.stringify({
               type: 'error',
               content: '圖表生成失敗'
@@ -664,7 +689,8 @@ exports.chatWithOllama = async (req, res) => {
 
       }
       else{
-        console.log("其他圖片");
+        //console.log("其他圖片");
+        debug("其他圖片");
         const result = await generateGraphInternal(question, userId, chat_id, "OTHER" , model);
         
         // 添加此段代碼：將圖片ID存入資料庫，但作為新訊息，不替換原先的回覆
@@ -682,10 +708,12 @@ exports.chatWithOllama = async (req, res) => {
               
               chatDoc.updated_at = new Date();
               await chatDoc.save();
-              console.log('AI生成圖片已儲存至對話記錄:', result.imageId || result._id);
+              //console.log('AI生成圖片已儲存至對話記錄:', result.imageId || result._id);
+              debug('AI生成圖片已儲存至對話記錄:', result.imageId || result._id);
             }
           } catch (dbErr) {
-            console.error('儲存AI生成圖片到對話記錄失敗:', dbErr);
+            //console.error('儲存AI生成圖片到對話記錄失敗:', dbErr);
+            debug('儲存AI生成圖片到對話記錄失敗:', dbErr);
           }
         }
         
@@ -765,9 +793,11 @@ exports.chatWithOllama = async (req, res) => {
         chatDoc.updated_at = new Date();
         await chatDoc.save();
         
-        console.log('對話已儲存:', chatDoc);
+        //console.log('對話已儲存:', chatDoc);
+        debug('對話已儲存:', chatDoc);
       } catch (dbErr) {
-        console.error('儲存對話失敗:', dbErr);
+        //console.error('儲存對話失敗:', dbErr);
+        debug('儲存對話失敗:', dbErr);
         res.write(`data: ${JSON.stringify({ error: '儲存對話失敗' })}\n\n`);
       }
     }
@@ -776,7 +806,8 @@ exports.chatWithOllama = async (req, res) => {
     res.end();
 
   } catch (err) {
-    console.error('聊天錯誤:', err);
+    //console.error('聊天錯誤:', err);
+    debug('聊天錯誤:', err);
     if (!res.headersSent) {
       res.status(500).json({ error: err.message });
     } else {
@@ -789,32 +820,38 @@ exports.chatWithOllama = async (req, res) => {
 };
 
 exports.getChatHistories = async (req, res) => {
-  console.log('getChatHistories called');
-  console.log('Headers:', req.headers);  // 檢查所有 headers
-  
+  //console.log('getChatHistories called');
+  //console.log('Headers:', req.headers);  // 檢查所有 headers
+  debug('getChatHistories called');
+  debug('Headers:', req.headers);  // 檢查所有 headers
+
   const authHeader = req.headers.authorization;
   if (!authHeader) {
-    console.log('No authorization header found');
+    //console.log('No authorization header found');
+    debug('No authorization header found');
     return res.status(401).json({ success: false, message: '未提供認證' });
   }
 
   const token = authHeader.split(' ')[1];
-  console.log('Extracted token:', token);
-
+  //console.log('Extracted token:', token);
+  debug('Extracted token:', token);
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
-    console.log('Decoded token:', decoded);
+    //console.log('Decoded token:', decoded);
+    debug('Decoded token:', decoded);
 
     const histories = await Chat.find(
       { userId: decoded.id },
       { chat_id: 1, title: 1, updated_at: 1 }
     ).sort({ updated_at: -1 });
     
-    console.log('Found histories:', histories);
+    //console.log('Found histories:', histories);
+    debug('Found histories:', histories);
     res.json({ success: true, histories });
     
   } catch (err) {
-    console.error('Error in getChatHistories:', err);
+    //console.error('Error in getChatHistories:', err);
+    debug('Error in getChatHistories:', err);
     if (err instanceof jwt.JsonWebTokenError) {
       return res.status(401).json({ success: false, message: '無效的認證token' });
     }
@@ -860,7 +897,8 @@ exports.getChatById = async (req, res) => {
             ? JSON.parse(msg.graph_json) 
             : msg.graph_json;
         } catch (e) {
-          console.error('graph_json 解析錯誤:', e);
+          //console.error('graph_json 解析錯誤:', e);
+          debug('graph_json 解析錯誤:', e);
         }
       }
 
@@ -869,7 +907,8 @@ exports.getChatById = async (req, res) => {
     
     res.json({ success: true, chat_history: formattedHistory });
   } catch (err) {
-    console.error('載入對話失敗:', err);
+    //console.error('載入對話失敗:', err);
+    debug('載入對話失敗:', err);
     res.status(500).json({ success: false, message: '載入對話失敗' });
   }
 };
@@ -886,7 +925,8 @@ exports.uploadImage = async (req, res) => {
 
     upload(req, res, async (err) => {
       if (err) {
-        console.error('Multer error:', err);
+        //console.error('Multer error:', err);
+        debug('Multer error:', err);
         return res.status(400).json({ success: false, message: err.message });
       }
 
@@ -937,12 +977,14 @@ exports.uploadImage = async (req, res) => {
         });
 
       } catch (gridfsErr) {
-        console.error('GridFS error:', gridfsErr);
+        //console.error('GridFS error:', gridfsErr);
+        debug('GridFS error:', gridfsErr);
         res.status(500).json({ success: false, message: '圖片儲存失敗' });
       }
     });
   } catch (err) {
-    console.error('General error:', err);
+    //console.error('General error:', err);
+    debug('General error:', err);
     res.status(500).json({ success: false, message: '圖片上傳失敗' });
   }
 };
@@ -994,7 +1036,8 @@ exports.getImage_locate = async (req, res) => {
 
     // 檢查圖片是否已經存在於 temp_img 資料夾
     if (fs.existsSync(localPath)) {
-      console.log('圖片已存在於本地:', localPath);
+      //console.log('圖片已存在於本地:', localPath);
+      debug('圖片已存在於本地:', localPath);
       return res.json({
         success: true,
         path: localPath,
@@ -1012,14 +1055,16 @@ exports.getImage_locate = async (req, res) => {
 
     downloadStream.pipe(writeStream)
       .on('error', (error) => {
-        console.error('下載錯誤:', error);
+        //console.error('下載錯誤:', error);
+        debug('下載錯誤:', error);
         res.status(500).json({ 
           success: false, 
           message: '圖片下載失敗' 
         });
       })
       .on('finish', () => {
-        console.log('圖片已下載至:', localPath);
+        //console.log('圖片已下載至:', localPath);
+        debug('圖片已下載至:', localPath);
         res.json({
           success: true,
           path: localPath,
@@ -1028,7 +1073,8 @@ exports.getImage_locate = async (req, res) => {
       });
 
   } catch (err) {
-    console.error('取得圖片位置錯誤:', err);
+    //console.error('取得圖片位置錯誤:', err);
+    debug('取得圖片位置錯誤:', err);
     res.status(500).json({ 
       success: false, 
       message: '取得圖片位置失敗' 
@@ -1084,7 +1130,8 @@ exports.deleteImage = async (req, res) => {
     });
 
   } catch (err) {
-    console.error('刪除圖片錯誤:', err);
+    //console.error('刪除圖片錯誤:', err);
+    debug('刪除圖片錯誤:', err);
     res.status(500).json({ 
       success: false, 
       message: '刪除圖片失敗' 
@@ -1131,8 +1178,9 @@ exports.deleteChat = async (req, res) => {
     });
 
   } catch (err) {
-    console.error('刪除對話錯誤:', err);
-    
+    //console.error('刪除對話錯誤:', err);
+    debug('刪除對話錯誤:', err);
+
     if (err instanceof jwt.JsonWebTokenError) {
       return res.status(401).json({ success: false, message: '無效的認證token' });
     }
