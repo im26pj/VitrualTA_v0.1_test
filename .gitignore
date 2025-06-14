@@ -17,6 +17,10 @@ dist-ssr
 **/.graphenv/
 
 *.safetensors
+*.bin
+*.pt
+*.ckpt
+
 
 .vscode/*
 !.vscode/extensions.json
