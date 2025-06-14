@@ -47,8 +47,10 @@ Token 包含時間戳記防止重放攻擊
   
 
 *代辦事項*
-完成對話紀錄存檔database
-
+  重構conversation_history邏輯，前端不再收集完整對話紀錄傳入改成只傳入最新prompt到後段，後端透過去資料庫撈對話紀錄拚接後再一起傳入ollama避免報http413錯誤
+  提供邊緣運算選項，提供一個選項讓使用者運用自身設備算利進行運算 -> 可以考慮限制伺服器生成圖片張數讓使用者自行運算
+  修改生成圖片邏輯 ->第一次ollama (生成一張圖片的敘述詳細的) -> 第二次ollama (將敘述轉成一個一個使用,分隔開的英文單字) -> 進入diffusion
+  檢查有無同時調用lora+model
 
 *使用方式*
 react前端: 
@@ -98,3 +100,18 @@ k6 run pressure_test.js > k6_output.log 2>&1
   就會使Node.js事件迴圈被阻塞，引此採用大量一步I/O操作(EX: async/awiat處理請求)
 
 對話紀錄資料庫查詢部分有做LIFO
+
+diffusion_1.5
+  python diffusion_1.5.py "official art, 1girl in magic school, fantasy, mage, alchemist, detailed background, 8k , <lora:L_RM-BS1:1> <lora:L_RM-BS2:1>" user123 chat456 "" 10 ""
+
+  python diffusion_1.5.py "prompt" user-id chat-id "lora-file" num-img "webui-style-model-name"
+
+diffusion_3.5
+  python diffusion_1.5.py "prompt" user-id chat-id
+
+cloudflared
+  cloudflared tunnel login
+  cloudflared tunnel create $tunnel_name
+  cloudflared tunnel run
+
+

@@ -88,7 +88,7 @@ interface NodeData {
   width?: number;
   height?: number;
   type?: string;
-  label?: string;
+  label: string;  // 移除 ? 使其成為必填欄位
 }
 
 interface LinkData {
@@ -141,8 +141,12 @@ export const ChatRoom = (): JSX.Element => {
   // 在 ChatRoom 組件的開頭添加以下狀態變數
   const [showToolMenu, setShowToolMenu] = useState(false);
   const [showModelOptions, setShowModelOptions] = useState(false);
-  const [selectedModel, setSelectedModel] = useState<"1.5" | "3.5">("1.5"); // 預設為 1.5
+  const [selectedModel, setSelectedModel] = useState<"1.5" | "2.1" | "xl" | "3.5">("1.5"); // 預設為 1.5
   const toolButtonRef = useRef<HTMLButtonElement>(null);
+
+  // 在 ChatRoom 組件內添加新的狀態變數
+  const [showImageCountOptions, setShowImageCountOptions] = useState(false);
+  const [selectedImageCount, setSelectedImageCount] = useState<number>(1); // 預設為 1
 
   const handleDropdownToggle = () => setShowDropdown(!showDropdown);
 
@@ -330,7 +334,8 @@ export const ChatRoom = (): JSX.Element => {
         isVisitor: false,
         isNewChat: messages.length === 0,
         img_id: currentImageIds,
-        model: selectedModel  // 添加模型參數
+        model: selectedModel,
+        genpic_num: selectedImageCount  // 添加圖片數量參數
       };
 
       await fetchSSEStream(
@@ -1059,11 +1064,23 @@ export const ChatRoom = (): JSX.Element => {
     const handleClickOutside = (event: MouseEvent) => {
       // 檢查是否點擊到模型選單
       const modelMenuElement = document.querySelector('.model-options-menu');
-      const isClickOnModelMenu = modelMenuElement && modelMenuElement.contains(event.target as Node);
+      const modelButtonElement = document.querySelector('[data-model-button]');
       
-      // 如果沒有點擊在模型選單上，則關閉它
-      if (!isClickOnModelMenu && showModelOptions) {
+      // 檢查是否點擊到數量選單
+      const countMenuElement = document.querySelector('.image-count-menu');
+      const countButtonElement = document.querySelector('[data-count-button]');
+      
+      // 確保點擊不是在按鈕或菜單上才關閉菜單
+      if (!modelMenuElement?.contains(event.target as Node) && 
+          !modelButtonElement?.contains(event.target as Node) && 
+          showModelOptions) {
         setShowModelOptions(false);
+      }
+      
+      if (!countMenuElement?.contains(event.target as Node) && 
+          !countButtonElement?.contains(event.target as Node) && 
+          showImageCountOptions) {
+        setShowImageCountOptions(false);
       }
     };
     
@@ -1072,21 +1089,89 @@ export const ChatRoom = (): JSX.Element => {
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [showModelOptions]); // 保持依賴項一致
+  }, [showModelOptions, showImageCountOptions]); // 保持依賴項一致
 
   return (
     <div className="bg-[#6683d2] flex flex-col items-center w-full min-h-screen px-4 md:px-8">
-      {/* 隱藏的檔案輸入元素 */}
-      <input
-        type="file"
-        id="file-upload-input"
-        ref={fileInputRef}
-        className="hidden"
-        multiple
-        accept="image/*"
-        onChange={(e) => handleFileUpload(e.target.files)}
-      />
-      
+      {/* 新增打字動畫樣式 */}
+      <style>
+        {`
+        .typing-indicator {
+          display: inline-flex;
+          align-items: center;
+          background-color: rgba(181, 209, 225, 0.15);
+          border-radius: 1rem;
+          padding: 0.5rem 0.75rem;
+        }
+
+        .typing-dot {
+          display: inline-block;
+          width: 0.5rem;
+          height: 0.5rem;
+          margin: 0 0.15rem;
+          background-color: #6683d2;
+          border-radius: 50%;
+          opacity: 0.7;
+        }
+
+        .typing-dot:nth-child(1) {
+          animation: typing-animation 1.4s infinite ease-in-out -0.32s;
+        }
+
+        .typing-dot:nth-child(2) {
+          animation: typing-animation 1.4s infinite ease-in-out -0.16s;
+        }
+
+        .typing-dot:nth-child(3) {
+          animation: typing-animation 1.4s infinite ease-in-out;
+        }
+
+        @keyframes typing-animation {
+          0%, 80%, 100% { 
+            transform: scale(0.7);
+          }
+          40% { 
+            transform: scale(1);
+            opacity: 1;
+          }
+        }
+
+        @keyframes slide-up {
+          from {
+            opacity: 0;
+            transform: translateY(10px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        
+        .animate-slide-up {
+          animation: slide-up 0.2s ease-out forwards;
+        }
+        
+        /* 自定義滾動條樣式 */
+        .image-count-menu::-webkit-scrollbar {
+          width: 6px;
+        }
+        
+        .image-count-menu::-webkit-scrollbar-track {
+          background: #f1f1f1;
+          border-radius: 3px;
+        }
+        
+        .image-count-menu::-webkit-scrollbar-thumb {
+          background: #ccc;
+          border-radius: 3px;
+        }
+        
+        .image-count-menu::-webkit-scrollbar-thumb:hover {
+          background: #aaa;
+        }
+        `}
+      </style>
+
       <div className="w-full relative z-10"></div>
       <div className="w-full relative z-10">
         <div className="w-full bg-[#B5D1E1] py-6 px-8 flex items-center shadow-md fixed top-0 left-0 right-0 rounded-b-[28px] ">
@@ -1331,7 +1416,7 @@ export const ChatRoom = (): JSX.Element => {
                       onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
-                        document.getElementById('file-upload-input')?.click();
+                        fileInputRef.current?.click(); // 使用 ref 來觸發檔案選擇器
                       }}
                       className="text-gray-700 hover:text-gray-900 cursor-pointer px-2 flex items-center flex-shrink-0"
                       type="button"
@@ -1399,20 +1484,111 @@ export const ChatRoom = (): JSX.Element => {
                     </div>
                   ))}
 
-                  {/* 顯示當前選擇的模型 */}
-                  <div className="flex items-center text-xs text-gray-500 mt-1 ml-2">
-                    <span>圖片生成模型: </span>
-                    <span className="font-semibold ml-1">
-                      {selectedModel === "1.5" ? "Stable-Diffusion 1.5" : "Stable-Diffusion 3.5"}
-                    </span>
-                    {/* 簡單的模型選擇按鈕 */}
-                    <button
-                      onClick={() => setSelectedModel(selectedModel === "1.5" ? "3.5" : "1.5")}
-                      className="ml-2 text-blue-500 hover:text-blue-700 text-xs"
-                      type="button"
-                    >
-                      切換
-                    </button>
+                  {/* 圖片生成模型與數量控制放在同一列 */}
+                  <div className="flex items-center text-xs text-gray-500 mt-1 ml-2 space-x-4">
+                    {/* 模型選擇控件 */}
+                    <div className="flex items-center relative">
+                      <span>圖片生成模型: </span>
+                      <span className="font-semibold ml-1">
+                        {selectedModel === "1.5" && "Stable-Diffusion 1.5"}
+                        {selectedModel === "2.1" && "Stable-Diffusion 2.1"}
+                        {selectedModel === "xl" && "Stable-Diffusion XL"}
+                        {selectedModel === "3.5" && "Stable-Diffusion 3.5"}
+                      </span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowModelOptions(!showModelOptions);
+                          setShowImageCountOptions(false); // 關閉另一個選單
+                        }}
+                        className="ml-2 text-blue-500 hover:text-blue-700 text-xs flex items-center"
+                        type="button"
+                        data-model-button="true"
+                      >
+                        <span>切換</span>
+                        <svg 
+                          xmlns="http://www.w3.org/2000/svg" 
+                          className={`h-3 w-3 ml-1 transition-transform duration-200 ${showModelOptions ? 'rotate-180' : ''}`}
+                          fill="none" 
+                          viewBox="0 0 24 24" 
+                          stroke="currentColor"
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </button>
+                      
+                      {/* 彈出式模型選單 */}
+                      {showModelOptions && (
+                        <div className="absolute bottom-6 left-0 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-30 w-52 model-options-menu animate-slide-up">
+                          {[
+                            { id: "1.5", name: "Stable-Diffusion 1.5" },
+                            { id: "2.1", name: "Stable-Diffusion 2.1" },
+                            { id: "xl", name: "Stable-Diffusion XL" },
+                            { id: "3.5", name: "Stable-Diffusion 3.5" },
+                          ].map((model) => (
+                            <div 
+                              key={model.id}
+                              onClick={() => {
+                                setSelectedModel(model.id as "1.5" | "2.1" | "xl" | "3.5");
+                                setShowModelOptions(false);
+                              }}
+                              className={`px-4 py-2 cursor-pointer hover:bg-gray-100 ${
+                                selectedModel === model.id ? 'bg-blue-50 text-blue-600 font-medium' : ''
+                              }`}
+                            >
+                              {model.name}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    
+                    {/* 數量選擇控件 - 與模型選擇放在同一列 */}
+                    <div className="flex items-center relative">
+                      <span>生成數量: </span>
+                      <span className="font-semibold ml-1">{selectedImageCount}</span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowImageCountOptions(!showImageCountOptions);
+                          setShowModelOptions(false); // 關閉另一個選單
+                        }}
+                        className="ml-2 text-blue-500 hover:text-blue-700 text-xs flex items-center"
+                        type="button"
+                        data-count-button="true"
+                      >
+                        <span>選擇</span>
+                        <svg 
+                          xmlns="http://www.w3.org/2000/svg" 
+                          className={`h-3 w-3 ml-1 transition-transform duration-200 ${showImageCountOptions ? 'rotate-180' : ''}`}
+                          fill="none" 
+                          viewBox="0 0 24 24" 
+                          stroke="currentColor"
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </button>
+                      
+                      {/* 彈出式數量選單 - 一次只顯示5個，可滾動 */}
+                      {showImageCountOptions && (
+                        <div className="absolute bottom-6 left-0 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-30 w-28 image-count-menu animate-slide-up max-h-[165px] overflow-y-auto">
+                          {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((count) => (
+                            <div 
+                              key={count}
+                              onClick={() => {
+                                setSelectedImageCount(count);
+                                setShowImageCountOptions(false);
+                              }}
+                              className={`px-4 py-2 cursor-pointer hover:bg-gray-100 ${
+                                selectedImageCount === count ? 'bg-blue-50 text-blue-600 font-medium' : ''
+                              }`}
+                            >
+                              {count === 1 ? `${count}  (預設)` : `${count} `}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1420,6 +1596,17 @@ export const ChatRoom = (): JSX.Element => {
           </div>
         </div>
       </div>
+
+      {/* 添加隱藏的檔案輸入元素 */}
+      <input
+        type="file"
+        id="file-upload-input"
+        ref={fileInputRef}
+        onChange={(e) => handleFileUpload(e.target.files)}
+        accept="image/*"
+        multiple
+        style={{ display: 'none' }}
+      />
     </div>
   );
 };

@@ -18,6 +18,10 @@ app.use(express.static(frontendPath));
 
 // ======== CORS 設定 ========
 const allowedOrigins = [
+  'http://virtualta.xyz',
+  'http://virtualta.online',
+  'https://virtualta.xyz',
+  'https://virtualta.online',
   'http://localhost:5000',
   'http://localhost:3000',
   'http://134.208.97.85:5000',
@@ -90,8 +94,9 @@ logger.format('dev-ip', function(tokens, req, res) {
 // 使用新的 'dev-ip' 日誌格式
 app.use(logger('dev-ip'));
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: false }));
+// 修改這些行，增加限制大小
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ extended: false, limit: '100mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // 你的自訂日誌中間件 (現在可以移除 console.log)

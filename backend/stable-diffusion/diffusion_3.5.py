@@ -29,7 +29,7 @@ def main():
         # 加載 transformer 模型
         model_nf4 = SD3Transformer2DModel.from_pretrained(
             model_id,
-            token="### TOKEN 填入這 ***",  # 請確保此 token 有效或使用環境變量
+            token="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",  # 請確保此 token 有效或使用環境變量
             subfolder="transformer",
             quantization_config=nf4_config,
             torch_dtype=torch.bfloat16
@@ -38,7 +38,7 @@ def main():
         # 加載完整 pipeline
         pipeline = StableDiffusion3Pipeline.from_pretrained(
             model_id, 
-            token="### TOKEN 填入這 ***",
+            token="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",
             transformer=model_nf4,
             torch_dtype=torch.bfloat16
         )

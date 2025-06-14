@@ -9,41 +9,50 @@ interface ApiError {
  * 取得目前可用的 API 伺服器列表
  */
 const getBaseServers = (): string[] => {
-  const currentHost = window.location.origin;
+  const currentOrigin = window.location.origin;
   const hostname = window.location.hostname;
-  const isLocal = hostname === 'localhost';
+  const isLocal = hostname === 'localhost' || hostname === '127.0.0.1';
   const isCloudflare = hostname.endsWith('.trycloudflare.com');
 
+  // ✅ 正式環境 API 清單
+  const productionServers = [
+    'https://virtualta.xyz',
+    'https://virtualta.online',
+  ];
+
   const localServers = [
-    'http://localhost:3000',     // Express API server
-    'http://127.0.0.1:3000',    // 移除 WebSocket URL
-    'http://localhost:5000'      // Frontend dev server
+    currentOrigin,                      // 自動推斷目前 origin
+    'http://localhost:5000',           // 本機 Express API
+    'http://localhost:3000',
+    'http://127.0.0.1:5000',
+    'http://127.0.0.1:3000',
   ];
 
-  let remoteServers = [
-    currentHost.startsWith('http') ? currentHost : ''
-  ];
+  const remoteServers: string[] = [];
 
-  // 如果是 Cloudflare Tunnel 網址，嘗試提取主要部分並構建可能的變體
+  // ✅ Cloudflare Tunnel 處理邏輯
   if (isCloudflare) {
-    // 從目前網址提取 Cloudflare 網域的隨機部分
     const randomPart = hostname.split('.')[0];
-    console.log(`檢測到 Cloudflare Tunnel 網址: ${randomPart}`);
-    
-    // 添加可能的 API 服務器變體到候選清單
-    // 如果當前是前端，嘗試連接到後端；反之亦然
     if (randomPart.includes('frontend')) {
       remoteServers.push(`https://${randomPart.replace('frontend', 'backend')}.trycloudflare.com`);
     } else if (randomPart.includes('backend')) {
       remoteServers.push(`https://${randomPart.replace('backend', 'frontend')}.trycloudflare.com`);
     }
-    
-    // 如果有其他已知的固定服務名稱，也可以加入
-    // 例如: remoteServers.push(`https://api-virtualTA.trycloudflare.com`);
   }
 
-  return isLocal ? localServers : remoteServers.filter(Boolean);
+  // ✅ 根據執行環境決定使用哪些伺服器
+  if (isLocal) {
+    return localServers;
+  }
+
+  if (productionServers.includes(currentOrigin)) {
+    // ✅ 前端跑在正式網址時，回傳對應的固定後端列表
+    return productionServers;
+  }
+
+  return [currentOrigin, ...remoteServers].filter(Boolean);
 };
+
 
 /**
  * 帶 timeout 的 fetch（預設 3000ms）
@@ -300,8 +309,34 @@ export const uploadImage = async (formData: FormData): Promise<UploadImageRespon
 };
 
 export const getImageUrl = (fileId: string): string => {
-  const baseServer = getBaseServers()[0]; // 使用第一個可用的伺服器
-  return `${baseServer}/api/images/${fileId}`;
+  // 如果是相對路徑，直接返回
+  if (fileId.startsWith('/')) {
+    return fileId;
+  }
+  
+  // 檢查是否在移動設備上
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  
+  // 檢查環境
+  const hostname = window.location.hostname;
+  const isTestEnv = hostname === 'localhost' || hostname === '127.0.0.1';
+  
+  // 檢查協議
+  const protocol = window.location.protocol; // 獲取當前協議 (http: 或 https:)
+  
+  if (isTestEnv) {
+    // 測試環境使用與當前頁面相同的協議
+    if (isMobile) {
+      // 在移動設備上使用相對路徑，避免混合內容問題
+      return `/api/images/${fileId}`;
+    } else {
+      // 在桌面測試環境使用與當前頁面相同的協議
+      return `${protocol}//localhost:3000/api/images/${fileId}`;
+    }
+  }
+  
+  // 生產環境使用相對路徑
+  return `/api/images/${fileId}`;
 };
 
 // 新增的介面

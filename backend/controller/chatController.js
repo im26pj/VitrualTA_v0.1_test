@@ -11,91 +11,179 @@ const fs = require('fs');
 const path = require('path');
 const debug = require('debug')('app:userController'); // 引入 debug 並設定命名空間
 
+// 在文件頂部添加 API_BASE_URL 常量
+const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:3000';
 
 // 引入 child_process 來運行 Python 腳本
 const { spawn } = require('child_process');
 
-// 實現直接調用 Python 腳本的函數
-const spawn_1 = async function(prompt, userId, chat_id) {
+// 修改 spawn_1 函數
+const spawn_1 = async function(prompt, userId, chat_id, lora_name, num_images, model_arg, webui_style_model_name) {
+  // 若 lora_name 不為空但不是絕對路徑，則转换為絕對路徑
+  if (lora_name && !path.isAbsolute(lora_name)) {
+    const loraPath = path.join(__dirname, '../stable-diffusion/loras/', lora_name);
+    lora_name = loraPath;
+  }
+  
+  // 新增: 若 webui_style_model_name 不為空但不是絕對路徑，轉換為絕對路徑
+  if (webui_style_model_name && !path.isAbsolute(webui_style_model_name)) {
+    const styleModelPath = path.join(__dirname, '../stable-diffusion/models/', webui_style_model_name);
+    webui_style_model_name = styleModelPath;
+  }
+  
+  // 確保 num_images 是有效的數字
+  num_images = num_images ? parseInt(num_images) : 1;
+  
   return new Promise((resolve, reject) => {
-    // 獲取 Python 腳本的完整路徑
     const scriptPath = path.join(__dirname, '../stable-diffusion/diffusion_1.5.py');
-    
-    // 修正：虛擬環境在 stable-diffusion 資料夾下
     const pythonExecutable = path.join(__dirname, '../stable-diffusion/.graphenv/Scripts/python.exe');
-    
-    //console.log(`執行 Python 腳本: ${scriptPath}`);
-    //console.log(`使用 Python 路徑: ${pythonExecutable}`);
-    //console.log(`參數: ${prompt}, ${userId}, ${chat_id}`);
+
     debug(`執行 Python 腳本: ${scriptPath}`);
     debug(`使用 Python 路徑: ${pythonExecutable}`);
-    debug(`參數: ${prompt}, ${userId}, ${chat_id}`);
+    debug(`參數: ${prompt}, ${userId}, ${chat_id}, ${lora_name}, ${num_images}, ${model_arg}, ${webui_style_model_name}`);
 
-    // 直接執行 Python 腳本
     const pythonProcess = spawn(
       pythonExecutable,
-      [scriptPath, prompt, userId, chat_id],
+      [scriptPath, prompt, userId, chat_id, lora_name || "", num_images, model_arg || "", webui_style_model_name || ""],
       {
         env: { ...process.env }
       }
     );
-    
+
     let outputData = '';
     let errorData = '';
-    
+
     // 收集標準輸出
     pythonProcess.stdout.on('data', (data) => {
       outputData += data.toString();
     });
-    
+
     // 收集錯誤輸出
     pythonProcess.stderr.on('data', (data) => {
       errorData += data.toString();
-      //console.error(`Python 腳本錯誤: ${data}`);
-      debug(`Python 腳本錯誤: ${data}`);
+      debug(`Python 腳本錯誤: ${data}`); // 只記錄錯誤信息到 debug，不返回給前端
     });
-    
+
     // 腳本執行完畢後處理結果
     pythonProcess.on('close', (code) => {
       if (code !== 0) {
-        //console.error(`Python 腳本執行失敗 (退出碼 ${code}): ${errorData}`);
         debug(`Python 腳本執行失敗 (退出碼 ${code}): ${errorData}`);
         reject(new Error(`圖片生成失敗: ${errorData}`));
         return;
       }
-      
+
       try {
-        // 解析 Python 輸出的 JSON
-        const result = JSON.parse(outputData.trim());
-        resolve(result);
+        debug('Python 輸出原始內容:', outputData);
+        
+        // 先尋找多圖片格式 {"_ids": [...]} 的 JSON 字串
+        const idsJsonRegex = /\{\s*"_ids"\s*:\s*\[\s*"[^"]+(?:",\s*"[^"]+)*"\s*\]\s*\}/g;
+        const idsMatch = outputData.match(idsJsonRegex);
+        
+        if (idsMatch && idsMatch.length > 0) {
+          const jsonStr = idsMatch[idsMatch.length - 1]; // 取最後一個匹配
+          debug('提取的多圖片 JSON 字符串:', jsonStr);
+          
+          try {
+            // 解析 JSON
+            const result = JSON.parse(jsonStr);
+            debug('成功解析多圖片 JSON:', result);
+            resolve(result);
+            return;
+          } catch (parseError) {
+            debug('多圖片 JSON 解析錯誤:', parseError);
+            // 繼續嘗試其他提取方法
+          }
+        }
+        
+        // 如果沒找到多圖片格式，再尋找單圖片格式 {"_id": "xxx"}
+        const idJsonRegex = /\{\s*"_id"\s*:\s*"[^"]+"\s*\}/g;
+        const idMatch = outputData.match(idJsonRegex);
+        
+        if (idMatch && idMatch.length > 0) {
+          const jsonStr = idMatch[idMatch.length - 1]; // 取最後一個匹配
+          debug('提取的單圖片 JSON 字符串:', jsonStr);
+          
+          try {
+            // 解析 JSON
+            const result = JSON.parse(jsonStr);
+            debug('成功解析單圖片 JSON:', result);
+            resolve(result);
+            return;
+          } catch (parseError) {
+            debug('單圖片 JSON 解析錯誤:', parseError);
+            // 繼續嘗試其他提取方法
+          }
+        }
+        
+        // 備用方法：尋找最後一個有效的 JSON 對象
+        const lastOpenBrace = outputData.lastIndexOf('{');
+        const lastCloseBrace = outputData.lastIndexOf('}');
+        
+        if (lastOpenBrace !== -1 && lastCloseBrace !== -1 && lastOpenBrace < lastCloseBrace) {
+          try {
+            const jsonCandidate = outputData.substring(lastOpenBrace, lastCloseBrace + 1);
+            debug('備用方法提取的 JSON 候選字符串:', jsonCandidate);
+            
+            const result = JSON.parse(jsonCandidate);
+            debug('成功使用備用方法解析 JSON:', result);
+            resolve(result);
+            return;
+          } catch (parseError) {
+            debug('備用方法解析失敗:', parseError);
+            // 嘗試進一步處理
+          }
+        }
+        
+        // 最後嘗試：從輸出中找到 _id 或 _ids 部分並手動構建 JSON
+        const idsPattern = /"_ids"\s*:\s*\[\s*"([^"]+(?:",\s*"[^"]+)*)"\s*\]/;
+        const idsMatch2 = outputData.match(idsPattern);
+        
+        if (idsMatch2 && idsMatch2[1]) {
+          const fileIds = idsMatch2[1].split('","').map(id => id.trim());
+          debug('從輸出中提取的檔案 IDs:', fileIds);
+          resolve({ _ids: fileIds });
+          return;
+        }
+        
+        const idPattern = /"_id"\s*:\s*"([^"]+)"/;
+        const idMatch2 = outputData.match(idPattern);
+        
+        if (idMatch2 && idMatch2[1]) {
+          const fileId = idMatch2[1];
+          debug('從輸出中提取的檔案 ID:', fileId);
+          resolve({ _id: fileId });
+          return;
+        }
+        
+        debug('無法在輸出中找到有效的 JSON 對象或檔案 ID');
+        reject(new Error('無法在 Python 輸出中找到有效的 JSON 對象'));
+        
       } catch (err) {
-        //console.error('無法解析 Python 輸出:', outputData);
         debug('無法解析 Python 輸出:', outputData);
+        debug('解析錯誤:', err);
         reject(new Error(`解析圖片生成結果失敗: ${err.message}`));
       }
     });
   });
 };
 
-// 類似地實現 spawn_3 函數
-const spawn_3 = async function(prompt, userId, chat_id) {
+// 修改 spawn_3 函數
+const spawn_3 = async function(prompt, userId, chat_id, model_variant = "medium") {
+  // model_variant 可以是 "medium" 或 "large" 等
   return new Promise((resolve, reject) => {
     const scriptPath = path.join(__dirname, '../stable-diffusion/diffusion_3.5.py');
     
     // 修正：使用相同的虛擬環境
     const pythonExecutable = path.join(__dirname, '../stable-diffusion/.graphenv/Scripts/python.exe');
     
-    //console.log(`執行 Python 腳本: ${scriptPath}`);
-    //console.log(`使用 Python 路徑: ${pythonExecutable}`);
-    //console.log(`參數: ${prompt}, ${userId}, ${chat_id}`);
     debug(`執行 Python 腳本: ${scriptPath}`);
     debug(`使用 Python 路徑: ${pythonExecutable}`);
-    debug(`參數: ${prompt}, ${userId}, ${chat_id}`);
+    debug(`參數: ${prompt}, ${userId}, ${chat_id}, ${model_variant}`);
 
     // 直接執行 Python 腳本
     const pythonProcess = spawn(
       pythonExecutable,
-      [scriptPath, prompt, userId, chat_id],
+      [scriptPath, prompt, userId, chat_id, model_variant],
       {
         env: { ...process.env }
       }
@@ -112,26 +200,38 @@ const spawn_3 = async function(prompt, userId, chat_id) {
     // 收集錯誤輸出
     pythonProcess.stderr.on('data', (data) => {
       errorData += data.toString();
-      //console.error(`Python 腳本錯誤: ${data}`);
       debug(`Python 腳本錯誤: ${data}`);
     });
     
     // 腳本執行完畢後處理結果
     pythonProcess.on('close', (code) => {
       if (code !== 0) {
-        //console.error(`Python 腳本執行失敗 (退出碼 ${code}): ${errorData}`);
         debug(`Python 腳本執行失敗 (退出碼 ${code}): ${errorData}`);
         reject(new Error(`圖片生成失敗: ${errorData}`));
         return;
       }
       
       try {
-        // 解析 Python 輸出的 JSON
-        const result = JSON.parse(outputData.trim());
-        resolve(result);
+        debug('Python 輸出原始內容:', outputData);
+        
+        // 嘗試尋找並提取 JSON 對象
+        const jsonRegex = /{[\s\S]*}/;
+        const match = outputData.match(jsonRegex);
+        
+        if (match) {
+          const jsonStr = match[0];
+          debug('提取的 JSON 字符串:', jsonStr);
+          
+          // 解析 JSON
+          const result = JSON.parse(jsonStr);
+          resolve(result);
+        } else {
+          debug('無法在輸出中找到 JSON 對象');
+          reject(new Error('無法在 Python 輸出中找到有效的 JSON 對象'));
+        }
       } catch (err) {
-        //console.error('無法解析 Python 輸出:', outputData);
         debug('無法解析 Python 輸出:', outputData);
+        debug('解析錯誤:', err);
         reject(new Error(`解析圖片生成結果失敗: ${err.message}`));
       }
     });
@@ -143,7 +243,7 @@ const storage = multer.memoryStorage();
 const upload = multer({ 
   storage: storage,
   limits: {
-    fileSize: 30 * 1024 * 1024, // 限制 30MB
+    fileSize: 100 * 1024 * 1024, // 提高到 100MB
   },
   fileFilter: (req, file, cb) => {
     if (file.mimetype.startsWith('image/')) {
@@ -154,8 +254,8 @@ const upload = multer({
   }
 }).array('images', 5); // 允許最多上傳5張圖片
 
-// 1. 首先添加內部函數
-async function generateGraphInternal(content, userId, chat_id, graph_type , model = "1.5") {
+// 1. 首先添加內部函數 
+async function generateGraphInternal(content, userId, chat_id, graph_type , tunnel = "OLD" , model = "sd15" , lora_name = "" , genpic_num = 1 , webui_style_model_name = "") {
   let prompt_generate = '';
   if(graph_type.toUpperCase() == "MINDMAP") {   
     prompt_generate = `
@@ -226,7 +326,7 @@ async function generateGraphInternal(content, userId, chat_id, graph_type , mode
   }else if (graph_type.toUpperCase() == "OTHER"){
     //console.log("進入 Diffusion 生成邏輯function");
     debug("進入 Diffusion 生成邏輯function");
-    if (model == "3.5"){
+    if (tunnel.toUpperCase() == "OLD"){
       prompt_generate =`請根據以下使用者描述的內容，完善並擴展描述細節，並且回傳英文回復且不能超過256個Token
       描述：
       ${content}
@@ -245,7 +345,7 @@ async function generateGraphInternal(content, userId, chat_id, graph_type , mode
       let fullResponse = response.message.content;
       // 將 fullResponse 傳入 diffusion 3.5 腳本
       //console.log(`生成圖片的優化提示 (3.5模型): ${fullResponse}`);
-      debug(`生成圖片的優化提示 (3.5模型): ${fullResponse}`);
+      debug(`生成圖片的優化提示 (${model}): ${fullResponse}`);
       try {
         // 調用 spawn_3 函數，它會執行 Python 腳本並返回包含圖片 ID 的結果
         const imageResult = await spawn_3(fullResponse, userId, chat_id);
@@ -253,16 +353,16 @@ async function generateGraphInternal(content, userId, chat_id, graph_type , mode
         // 檢查生成結果
         if (imageResult && imageResult._id) {
           //console.log(`圖片生成成功 (3.5模型)，ID: ${imageResult._id}`);
-          debug(`圖片生成成功 (3.5模型)，ID: ${imageResult._id}`);
+          debug(`圖片生成成功 (${model})，ID: ${imageResult._id}`);
           // 返回圖片結果 - Python 腳本已經把圖片存入 GridFS，所以這裡不需要再存
           return {
             success: true,
             imageId: imageResult._id,
-            url: `/api/images/${imageResult._id}`,
+            url: `${API_BASE_URL}/api/images/${imageResult._id}`,
             model: "3.5"  // 添加模型資訊，方便前端區分
           };
         } else {
-          throw new Error('圖片生成失敗 (3.5模型)');
+          throw new Error('圖片生成失敗 (${model})');
         }
       } catch (error) {
         //console.error('Diffusion 3.5 圖片生成錯誤:', error);
@@ -271,7 +371,7 @@ async function generateGraphInternal(content, userId, chat_id, graph_type , mode
       }
     }
     // 修改 1.5 模型部分的代碼
-    else if (model == "1.5") 
+    else if (tunnel.toUpperCase() == "NEW") 
     {
       prompt_generate = `請根據以下使用者描述的內容，完善並擴展描述細節，並且回傳英文回復且不能超過72個Token
       描述：
@@ -294,23 +394,46 @@ async function generateGraphInternal(content, userId, chat_id, graph_type , mode
       debug(`生成圖片的優化提示: ${fullResponse}`);
       try {
         // 調用 spawn_1 函數，它會執行 Python 腳本並返回包含圖片 ID 的結果
-        const imageResult = await spawn_1(fullResponse, userId, chat_id);
+        const imageResult = await spawn_1(
+          fullResponse, 
+          userId, 
+          chat_id, 
+          lora_name || null, 
+          genpic_num ? parseInt(genpic_num) : 1, 
+          webui_style_model_name || ""
+        );
         
-        // 檢查生成結果
-        if (imageResult && imageResult._id) {
-          //console.log(`圖片生成成功，ID: ${imageResult._id}`);
-          debug(`圖片生成成功，ID: ${imageResult._id}`);
-          // 返回圖片結果 - Python 腳本已經把圖片存入 GridFS，所以這裡不需要再存
-          return {
-            success: true,
-            imageId: imageResult._id,
-            url: `/api/images/${imageResult._id}`
-          };
+        // 添加調試信息
+        debug(`spawn_1 調用參數: prompt=${fullResponse}, userId=${userId}, chat_id=${chat_id}, lora_name=${lora_name}, genpic_num=${genpic_num}, webui_style_model_name=${webui_style_model_name}`);
+        debug(`spawn_1 返回結果:`, imageResult);
+        
+        // 檢查生成結果 - 修改以支援多圖片
+        if (imageResult) {
+          // 處理單圖片情況
+          if (imageResult._id) {
+            debug(`單圖生成成功，ID: ${imageResult._id}`);
+            return {
+              success: true,
+              imageId: imageResult._id,
+              url: `${API_BASE_URL}/api/images/${imageResult._id}`
+            };
+          }
+          // 處理多圖片情況
+          else if (imageResult._ids && Array.isArray(imageResult._ids) && imageResult._ids.length > 0) {
+            debug(`多圖生成成功，共 ${imageResult._ids.length} 張，IDs: ${imageResult._ids.join(', ')}`);
+            return {
+              success: true,
+              multipleImages: true, // 標記為多張圖片
+              imageIds: imageResult._ids,
+              urls: imageResult._ids.map(id => `${API_BASE_URL}/api/images/${id}`)
+            };
+          } else {
+            throw new Error('圖片生成結果格式無效');
+          }
         } else {
           throw new Error('圖片生成失敗');
         }
       } catch (error) {
-        //console.error('Diffusion 1.5 圖片生成錯誤:', error);
         debug('Diffusion 1.5 圖片生成錯誤:', error);
         throw error;
       }
@@ -384,8 +507,8 @@ async function generateGraphInternal(content, userId, chat_id, graph_type , mode
       debug(`generateGraphInternal error ${retryCount}:`, error);
 
       if (retryCount < 2) {
-        try {
-          return await generateGraphInternal(content, userId, chat_id, graph_type);
+        try { 
+          return await generateGraphInternal(content, userId, chat_id, graph_type , tunnel  , model , lora_name , genpic_num  , webui_style_model_name );
         } catch (retryError) {
           return await retryGenerate(retryCount + 1);
         }
@@ -400,7 +523,7 @@ async function generateGraphInternal(content, userId, chat_id, graph_type , mode
 // 2. 修改原本的 API endpoint，使用內部函數
 // 生成json 給前端渲染
 exports.generateGraph = async (req, res) => {
-  const { isVisitor, chat_id, content , graph_type , model} = req.body;
+  const { isVisitor, chat_id, content , graph_type , tunnel ,model,  lora_name , genpic_num , webui_style_model_name} = req.body;
   const authHeader = req.headers.authorization;
 
   try {
@@ -415,7 +538,7 @@ exports.generateGraph = async (req, res) => {
       userId = decoded.id;
     }
 
-    const result = await generateGraphInternal(content, userId, chat_id , graph_type , model);
+    const result = await generateGraphInternal(content, userId, chat_id , graph_type , tunnel , model ,  lora_name , genpic_num , webui_style_model_name);
     
     return res.json({
       success: true,
@@ -433,9 +556,9 @@ exports.generateGraph = async (req, res) => {
 };
 
 exports.chatWithOllama = async (req, res) => {
-  const { conversationHistory, isVisitor, chat_id, isNewChat, img_64, img_id , model } = req.body;
+  const { conversationHistory, isVisitor, chat_id, isNewChat, img_64, img_id , model ,  lora_name , genpic_num , webui_style_model_name} = req.body;
   const authHeader = req.headers.authorization;
-
+  let tunnel = "NEW";
   if (!conversationHistory || !Array.isArray(conversationHistory)) {
     return res.status(400).json({ success: false, message: '缺少對話歷史' });
   }
@@ -471,6 +594,9 @@ exports.chatWithOllama = async (req, res) => {
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders();
+
+    if (model == "sd15" || model == "sd21" || model == "sdxl") { tunnel = "OLD"; }
+    else if (model == "sd35" || model == "sd35-m" || model == "sd35-l") { tunnel = "NEW"; }
 
     
     // 修改 processedHistory 的處理方式
@@ -565,7 +691,7 @@ exports.chatWithOllama = async (req, res) => {
       res.write(`data: ${JSON.stringify({ content: chunkContent })}\n\n`);
     }
     
-    // 儲存對話到資料庫
+    // 只保留一次儲存對話的邏輯 - 讀取用戶問題之前進行儲存
     if (!isVisitor) {
       try {
         let chatDoc;
@@ -594,10 +720,8 @@ exports.chatWithOllama = async (req, res) => {
               updated_at: new Date()
             });
           }
-        }
 
-        // 添加新的對話記錄，但只保存 img_id
-        if (!isNewChat) {
+          // 添加新的對話記錄，但只保存 img_id
           const cleanUserMessage = {
             ...userMessage,
             images: undefined // 不儲存 base64 圖片
@@ -605,6 +729,7 @@ exports.chatWithOllama = async (req, res) => {
           chatDoc.chat_history.push(cleanUserMessage);
         }
         
+        // 添加 AI 回應
         chatDoc.chat_history.push({
           ...assistantMessage,
           content: fullResponse
@@ -613,200 +738,153 @@ exports.chatWithOllama = async (req, res) => {
         chatDoc.updated_at = new Date();
         await chatDoc.save();
         
-        //console.log('對話已儲存:', chatDoc);
         debug('對話已儲存:', chatDoc);
       } catch (dbErr) {
-        //console.error('儲存對話失敗:', dbErr);
         debug('儲存對話失敗:', dbErr);
         res.write(`data: ${JSON.stringify({ error: '儲存對話失敗' })}\n\n`);
       }
     }
-    
 
-
-    // 讀取用戶最後一條訊息
+    // 讀取用戶最後一條訊息並檢查是否要生成圖片
     let question = conversationHistory
       .slice()
       .reverse()
       .find(msg => msg.role === 'user')?.content || '';
-    //用離紀錄圖片id
-    let _id = "";
 
-
-    //let question = "生成一張心智圖以erp為主題";
     //檢查用戶是否要生成圖片
     if(question.includes("生成") || question.toUpperCase().includes("GENERATE") || 
        question.includes("畫") || question.toUpperCase().includes("DRAW") ||
        question.includes("繪製") || question.toUpperCase().includes("DRAWING") )
     { 
-      //console.log("進入要求生成圖片邏輯處理");
+      // 還原圖片生成邏輯
       debug("進入要求生成圖片邏輯處理");
-      if(question.toUpperCase().includes("MINDMAP") || question.includes("心智") || question.includes("新智") || question.includes("思維導圖") )
-      {
-        //console.log("進入要求 MINDMAP"); 
-        debug("進入要求 MINDMAP");
-        try {
-          const result = await generateGraphInternal(question, userId, chat_id, "MINDMAP");
-          // 使用 SSE 格式發送圖表數據
-          res.write(`data: ${JSON.stringify({
-            type: 'graph',
-            content: result
-          })}\n\n`);
-        } catch (error) {
-          //console.error('圖表生成失敗:', error);
-          debug('圖表生成失敗:', error);
-          res.write(`data: ${JSON.stringify({
-            type: 'error',
-            content: '圖表生成失敗'
-          })}\n\n`);
-        }
-        res.write('data: [DONE]\n\n');
-        return res.end();
-      }
-      else if( question.toUpperCase().includes("SCD") || question.toUpperCase().includes("SYSTEM CONTEXT DIAGRAM") ||
-      question.toUpperCase().includes("CONTEXTDIAGRAM") || question.toUpperCase().includes("CONTEXT DIAGRAM") ||
-      question.toUpperCase().includes("SYSTEMCONTEXTDIAGRAM") || question.includes("系統") || question.includes("環境"))
-      {
-        //console.log("進入要求 SCD");
-        debug("進入要求 SCD");
-          try {
-            const result = await generateGraphInternal(question, userId, chat_id, "SCD");
-            // 使用 SSE 格式發送圖表數據
-            res.write(`data: ${JSON.stringify({
-              type: 'graph',
-              content: result
-            })}\n\n`);
-          } catch (error) {
-            //console.error('圖表生成失敗:', error);
-            debug('圖表生成失敗:', error);
-            res.write(`data: ${JSON.stringify({
-              type: 'error',
-              content: '圖表生成失敗'
-            })}\n\n`);
-          }
-          res.write('data: [DONE]\n\n');
-          return res.end();
-
-      }
-      else{
-        //console.log("其他圖片");
-        debug("其他圖片");
-        const result = await generateGraphInternal(question, userId, chat_id, "OTHER" , model);
-        
-        // 添加此段代碼：將圖片ID存入資料庫，但作為新訊息，不替換原先的回覆
-        if (!isVisitor && userId) {
-          try {
-            let chatDoc = await Chat.findOne({ chat_id, userId });
-            if (chatDoc) {
-              // 添加一條新的圖片訊息，不修改之前的回覆
-              chatDoc.chat_history.push({
-                role: 'assistant',
-                content: '已為您生成圖片',
-                img_id: [{ "0": result.imageId || result._id, "_id": result.imageId || result._id }],
-                timestamp: new Date()
-              });
-              
-              chatDoc.updated_at = new Date();
-              await chatDoc.save();
-              //console.log('AI生成圖片已儲存至對話記錄:', result.imageId || result._id);
-              debug('AI生成圖片已儲存至對話記錄:', result.imageId || result._id);
-            }
-          } catch (dbErr) {
-            //console.error('儲存AI生成圖片到對話記錄失敗:', dbErr);
-            debug('儲存AI生成圖片到對話記錄失敗:', dbErr);
-          }
-        }
-        
-        // 修改前端回應，告知這是額外的圖片訊息
-        res.write(`data: ${JSON.stringify({ 
-          type: 'image', 
-          isAdditionalMessage: true,  // 新增標記，表示這是額外的訊息
-          imageId: result.imageId || result._id,
-          image: {
-            fileId: result.imageId || result._id,
-            filename: `AI生成圖片 ${new Date().toLocaleTimeString()}`
-          }
-        })}\n\n`);
-        res.write('data: [DONE]\n\n');
-        return res.end();
-      }
       
-    }
-    
-
-
-    // 一般對話流程 - 移除重複的變量宣告
-    iterator = await ollama.chat(ollamaRequest);
-    
-    for await (const chunk of iterator) {
-      const chunkContent = chunk.message?.content ?? '';
-      fullResponse = chunkContent; // 重用已存在的 fullResponse 變量
-      assistantMessage.content += chunkContent;
-      res.write(`data: ${JSON.stringify({ content: chunkContent })}\n\n`);
-    }
-    
-    // 儲存對話到資料庫
-    if (!isVisitor) {
-      try {
-        let chatDoc;
-        if (isNewChat) {
-          const cleanUserMessage = {
-            ...userMessage,
-            images: undefined // 不儲存 base64 圖片
-          };
-          
-          chatDoc = new Chat({
-            userId,
-            chat_id,
-            title: userMessage.content.substring(0, 50) + '...',
-            chat_history: [cleanUserMessage],
-            updated_at: new Date()
-          });
-        } else {
-          // 更新現有對話
-          chatDoc = await Chat.findOne({ chat_id, userId });
-          if (!chatDoc) {
-            chatDoc = new Chat({
-              userId,
-              chat_id,
-              title: userMessage.content.substring(0, 50) + '...',
-              chat_history: [],
-              updated_at: new Date()
-            });
-          }
+      // 檢查用戶是否想要生成心智圖
+      if (question.includes("心智圖") || question.includes("腦圖") || 
+          question.toUpperCase().includes("MIND MAP") || question.toUpperCase().includes("MINDMAP")) {
+        debug("要求生成心智圖");
+        try {
+          // 生成心智圖
+          const graphResult = await generateGraphInternal(question, userId, chat_id, "MINDMAP" );
+          res.write(`data: ${JSON.stringify({ 
+            type: 'graph',
+            content: graphResult
+          })}\n\n`);
+        } catch (graphErr) {
+          debug("心智圖生成錯誤:", graphErr);
+          res.write(`data: ${JSON.stringify({ error: '心智圖生成失敗' })}\n\n`);
         }
-
-        // 添加新的對話記錄，但只保存 img_id
-        if (!isNewChat) {
-          const cleanUserMessage = {
-            ...userMessage,
-            images: undefined // 不儲存 base64 圖片
-          };
-          chatDoc.chat_history.push(cleanUserMessage);
+      }
+      // 檢查用戶是否想要生成 SCD 圖
+      else if (question.includes("系統上下文圖") || question.toUpperCase().includes("SCD") || 
+               question.includes("系統情境圖") || question.toUpperCase().includes("SYSTEM CONTEXT DIAGRAM")) {
+        debug("要求生成系統上下文圖");
+        try {
+          // 生成 SCD 圖
+          const graphResult = await generateGraphInternal(question, userId, chat_id, "SCD");
+          res.write(`data: ${JSON.stringify({ 
+            type: 'graph',
+            content: graphResult
+          })}\n\n`);
+        } catch (graphErr) {
+          debug("系統上下文圖生成錯誤:", graphErr);
+          res.write(`data: ${JSON.stringify({ error: '系統上下文圖生成失敗' })}\n\n`);
         }
-        
-        chatDoc.chat_history.push({
-          ...assistantMessage,
-          content: fullResponse
-        });
-        
-        chatDoc.updated_at = new Date();
-        await chatDoc.save();
-        
-        //console.log('對話已儲存:', chatDoc);
-        debug('對話已儲存:', chatDoc);
-      } catch (dbErr) {
-        //console.error('儲存對話失敗:', dbErr);
-        debug('儲存對話失敗:', dbErr);
-        res.write(`data: ${JSON.stringify({ error: '儲存對話失敗' })}\n\n`);
+      }
+      // 處理一般圖片生成請求
+      else {
+        debug("其他圖片");
+        try {
+          // 判斷是否要使用 Stable Diffusion 3.5 模型
+          if (tunnel.toUpperCase() == "NEW") {
+            const imageResult = await generateGraphInternal(question, userId, chat_id, "OTHER", tunnel, model, lora_name, genpic_num, webui_style_model_name);
+            
+            // 處理單圖片結果
+            if (imageResult && imageResult.imageId) {
+              try {
+                // 獲取圖片 base64 數據
+                const imageData = await getImageAsBase64(imageResult.imageId);
+                
+                // 發送單張圖片資訊到前端
+                res.write(`data: ${JSON.stringify({
+                  type: 'image',
+                  fileId: imageResult.imageId,
+                  url: imageResult.url,
+                  image: {
+                    fileId: imageResult.imageId,
+                    filename: `AI生成圖片 (${model})`,
+                    base64: imageData.base64
+                  }
+                })}\n\n`);
+                
+                // 將單張圖片 ID 添加到資料庫
+                if (!isVisitor && userId) {
+                  await addImageIdToChat(userId, chat_id, imageResult.imageId);
+                }
+              } catch (error) {
+                debug('獲取單張圖片 base64 失敗:', error);
+                res.write(`data: ${JSON.stringify({
+                  type: 'image',
+                  fileId: imageResult.imageId,
+                  url: imageResult.url
+                })}\n\n`);
+              }
+            } 
+            // 處理多圖片結果
+            else if (imageResult && imageResult.multipleImages && imageResult.imageIds) {
+              // 逐一處理每張圖片
+              for (let i = 0; i < imageResult.imageIds.length; i++) {
+                const imageId = imageResult.imageIds[i];
+                try {
+                  // 獲取圖片 base64 數據
+                  const imageData = await getImageAsBase64(imageId);
+                  
+                  // 發送每張圖片的資訊到前端
+                  res.write(`data: ${JSON.stringify({
+                    type: 'image',
+                    multipleImages: true,
+                    index: i + 1,
+                    total: imageResult.imageIds.length,
+                    fileId: imageId,
+                    url: imageResult.urls[i],
+                    image: {
+                      fileId: imageId,
+                      filename: `AI生成圖片 ${i+1}/${imageResult.imageIds.length} (${model})`,
+                      base64: imageData.base64
+                    }
+                  })}\n\n`);
+                } catch (error) {
+                  debug(`獲取第 ${i+1} 張圖片 base64 失敗:`, error);
+                  res.write(`data: ${JSON.stringify({
+                    type: 'image',
+                    multipleImages: true,
+                    index: i + 1,
+                    total: imageResult.imageIds.length,
+                    fileId: imageId,
+                    url: imageResult.urls[i]
+                  })}\n\n`);
+                }
+              }
+              
+              // 將所有圖片 ID 添加到資料庫
+              if (!isVisitor && userId) {
+                await addImageIdToChat(userId, chat_id, imageResult.imageIds);
+              }
+            }
+          } 
+          // 其他模型也需要做相似處理...
+
+        } catch (imageErr) {
+          debug("圖片生成錯誤:", imageErr);
+          res.write(`data: ${JSON.stringify({ error: '圖片生成失敗' })}\n\n`);
+        }
       }
     }
-    
+
     res.write('data: [DONE]\n\n');
     res.end();
 
   } catch (err) {
-    //console.error('聊天錯誤:', err);
     debug('聊天錯誤:', err);
     if (!res.headersSent) {
       res.status(500).json({ error: err.message });
@@ -1191,3 +1269,82 @@ exports.deleteChat = async (req, res) => {
     });
   }
 };
+
+// 添加一個新的工具函數，用於從 GridFS 獲取圖片並轉為 base64
+async function getImageAsBase64(imageId) {
+  try {
+    const bucket = new GridFSBucket(mongoose.connection.db, {
+      bucketName: 'images'
+    });
+    
+    const fileId = new ObjectId(imageId);
+    
+    // 檢查圖片是否存在
+    const file = await mongoose.connection.db
+      .collection('images.files')
+      .findOne({ _id: fileId });
+    
+    if (!file) {
+      throw new Error('找不到圖片');
+    }
+    
+    const chunks = [];
+    const downloadStream = bucket.openDownloadStream(fileId);
+    
+    for await (const chunk of downloadStream) {
+      chunks.push(chunk);
+    }
+    
+    const buffer = Buffer.concat(chunks);
+    return {
+      base64: buffer.toString('base64'),
+      contentType: file.metadata?.contentType || 'image/png',
+      filename: file.filename || 'generated-image.png'
+    };
+  } catch (error) {
+    debug('獲取圖片 base64 失敗:', error);
+    throw error;
+  }
+}
+
+// 新增：將圖片 ID 添加到對話記錄的輔助函數
+async function addImageIdToChat(userId, chat_id, imageId) {
+  try {
+    const chatDoc = await Chat.findOne({ chat_id, userId });
+    if (chatDoc && chatDoc.chat_history.length > 0) {
+      // 找到最後一條助手回應
+      const lastAssistantMsgIndex = chatDoc.chat_history.findIndex(
+        msg => msg.role === 'assistant' && !msg.img_id && !msg.graph_json
+      );
+      
+      if (lastAssistantMsgIndex !== -1) {
+        // 如果找到助手回應，添加圖片 ID
+        if (!chatDoc.chat_history[lastAssistantMsgIndex].img_id) {
+          chatDoc.chat_history[lastAssistantMsgIndex].img_id = [];
+        }
+        
+        // 處理單一ID或ID陣列
+        if (Array.isArray(imageId)) {
+          chatDoc.chat_history[lastAssistantMsgIndex].img_id.push(...imageId);
+          debug('已將多張圖片 ID 添加到對話記錄中:', imageId);
+        } else {
+          chatDoc.chat_history[lastAssistantMsgIndex].img_id.push(imageId);
+          debug('已將圖片 ID 添加到對話記錄中:', imageId);
+        }
+        await chatDoc.save();
+      } else {
+        // 如果找不到助手回應，創建一個新的回應
+        chatDoc.chat_history.push({
+          role: 'assistant',
+          content: '生成圖片',
+          img_id: Array.isArray(imageId) ? imageId : [imageId],
+          timestamp: new Date()
+        });
+        await chatDoc.save();
+        debug('已創建新的助手回應並添加圖片 ID');
+      }
+    }
+  } catch (dbErr) {
+    debug('將圖片 ID 添加到對話記錄失敗:', dbErr);
+  }
+}
