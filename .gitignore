@@ -21,6 +21,7 @@ dist-ssr
 *.pt
 *.ckpt
 
+**/ssl/
 
 .vscode/*
 !.vscode/extensions.json

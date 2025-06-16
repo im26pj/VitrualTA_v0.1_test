@@ -10,6 +10,8 @@ var usersRouter = require('./routes/users');
 var apiRouter = require('./routes/api');
 var app = express();
 const debug = require('debug')('app:app'); // Your existing debug instance
+const fs = require('fs');
+const https = require('https');
 
 // ======== 加入靜態前端檔案支援 ========
 const frontendPath = path.join(__dirname, '../frontend/dist');
@@ -151,8 +153,15 @@ mongoose.connect('mongodb://localhost:27017/vtadb')
   .catch(err => console.error('MongoDB connect error:', err));
 
 // ======== WebSocket 服務器設置 ========
-const server = app.listen(3000, () => {
-  console.log('Server running on port 3000');
+
+//讀取 SSL 憑證和金鑰
+const sslOptions = {
+  key: fs.readFileSync(path.join(__dirname, 'ssl/virtualta.xyz.key')),
+  cert: fs.readFileSync(path.join(__dirname, 'ssl/virtualta.xyz.crt')),
+};
+
+const server = https.createServer(sslOptions, app).listen(3000, () => {
+  console.log('🚀 HTTPS Server running on port 3000');
 });
 
 const WebSocket = require('ws');

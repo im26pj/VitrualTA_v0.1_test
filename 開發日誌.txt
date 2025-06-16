@@ -107,9 +107,19 @@ diffusion_1.5
   python diffusion_1.5.py "prompt" user-id chat-id "lora-file" num-img "webui-style-model-name"
 
 diffusion_3.5
-  python diffusion_1.5.py "prompt" user-id chat-id
+  python diffusion_3.5.py "prompt" user-id chat-id
 
 cloudflared
+  首次使用配置config.yaml檔案並放到cloudflare資料夾
+  tunnel:<填入tunnel編號官網取得>
+  credentials-file: C:\Users\project\.cloudflared\<填入tunnel編號官網取得>
+  ingress:
+  - hostname: 網站網域
+    service: https://localhost:3000
+    originRequest:
+      noTLSVerify: true
+  - service: http_status:404
+
   cloudflared tunnel login
   cloudflared tunnel create $tunnel_name
   cloudflared tunnel run
