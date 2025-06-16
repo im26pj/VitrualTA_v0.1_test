@@ -5,14 +5,21 @@ from diffusers import BitsAndBytesConfig, SD3Transformer2DModel, StableDiffusion
 import torch
 from pymongo import MongoClient
 import gridfs
+from dotenv import load_dotenv
+
+# 載入環境變量
+load_dotenv()
 
 def main():
     # 1. 從命令行接收參數
     if len(sys.argv) < 4:
-        print(json.dumps({"error": "需要 prompt, user_id, chat_id 三个参数"}))
+        print(json.dumps({"error": "需要 prompt, user_id, chat_id 三個參數"}))
         sys.exit(1)
     
-    prompt, userid, chat_id = sys.argv[1], sys.argv[2], sys.argv[3]
+    prompt, userid, chat_id, user_token = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+    
+    # 如果沒有提供 user_token，則使用環境變量中的預設值
+    user_token = user_token or os.getenv("DEFAULT_USER_TOKEN")
     
     # 2. 初始化 Diffusers pipeline
     try:
@@ -29,7 +36,7 @@ def main():
         # 加載 transformer 模型
         model_nf4 = SD3Transformer2DModel.from_pretrained(
             model_id,
-            token="",  # 請確保此 token 有效或使用環境變量
+            token=user_token,  # 請確保此 token 有效或使用環境變量
             subfolder="transformer",
             quantization_config=nf4_config,
             torch_dtype=torch.bfloat16
@@ -38,7 +45,7 @@ def main():
         # 加載完整 pipeline
         pipeline = StableDiffusion3Pipeline.from_pretrained(
             model_id, 
-            token="",
+            token=user_token,
             transformer=model_nf4,
             torch_dtype=torch.bfloat16
         )

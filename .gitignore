@@ -20,7 +20,7 @@ dist-ssr
 *.bin
 *.pt
 *.ckpt
-
+*.env
 **/ssl/
 
 .vscode/*
