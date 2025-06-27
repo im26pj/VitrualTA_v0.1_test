@@ -73,3 +73,47 @@ exports.signup = async (req, res) => {
       res.status(400).json({ success: false, message: '註冊失敗', error: err.message });
     }
   };
+
+  // controller/userController.js
+exports.changePassword = async (req, res) => {
+  try {
+    // 從 Authorization header 中獲取 token
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      return res.status(401).json({ success: false, message: '請先登入' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    const decoded = jwt.verify(token, JWT_SECRET);
+    const { oldPassword, newPassword } = req.body;
+    
+    debug(`收到 change-password 請求`);
+    debug(`account: ${decoded.account}`);
+    debug(`oldPassword 長度: ${oldPassword?.length || 0}`);
+
+    // 根據 token 中的 account 查找用戶
+    const user = await User.findOne({ account: decoded.account });
+    if (!user) {
+      debug('找不到使用者');
+      return res.status(404).json({ success: false, message: '找不到使用者' });
+    }
+
+    // 驗證舊密碼是否正確
+    const isMatch = await bcrypt.compare(oldPassword, user.password);
+    debug(`bcrypt.compare 結果: ${isMatch}`);
+
+    if (!isMatch) {
+      return res.status(400).json({ success: false, message: '舊密碼錯誤' });
+    }
+
+    // 更新密碼
+    user.password = newPassword; // User model 中有 pre-save hook 會自動加密密碼
+    await user.save();
+
+    return res.json({ success: true, message: '密碼修改成功' });
+  } catch (err) {
+    debug('修改密碼錯誤:', err.message);
+    return res.status(500).json({ success: false, message: '伺服器錯誤', error: err.message });
+  }
+};
+

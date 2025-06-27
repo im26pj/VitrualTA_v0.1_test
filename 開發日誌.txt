@@ -1,12 +1,9 @@
-
-
-
 代辦事項
 近期
-1.對話紀錄長一點會觸發error 401 ->應該跟vite接收單次指令最大上限有關
-2./Graph頁面整合到chatroom2.tsx中
-3.修正Graph頁面圖片跑版問題
-4.修正2個chatroom當前不能正確讀取換行符號的功能，對顯示的文字排版(祥參cmd後端他會有\n，但我們的對話框沒有真的換行)
+1.對話紀錄長一點會觸發error 401 ->應該跟vite接收單次指令最大上限有關 ->提高到單次請求最高100mb
+2./Graph頁面整合到chatroom2.tsx中 ->完成
+3.修正Graph頁面圖片跑版問題 ->完成
+4.修正2個chatroom當前不能正確讀取換行符號的功能，對顯示的文字排版(祥參cmd後端他會有\n，但我們的對話框沒有真的換行) ->處理完成
 長期
 1.RAG製作
 2.Fine-tune
@@ -52,6 +49,9 @@ Token 包含時間戳記防止重放攻擊
   修改生成圖片邏輯 ->第一次ollama (生成一張圖片的敘述詳細的) -> 第二次ollama (將敘述轉成一個一個使用,分隔開的英文單字) -> 進入diffusion
   檢查有無同時調用lora+model
   修改讓使用者提供token 訪問受限制的模型
+  提供direct方案讓使用者promot直接送達diffusion
+  修好tunnel = new的圖片生成存檔使用array存入img_id內
+  修復回傳 base_64功能
 
 *使用方式*
 react前端: 
@@ -108,7 +108,8 @@ diffusion_1.5
   python diffusion_1.5.py "prompt" user-id chat-id "lora-file" num-img "webui-style-model-name"
 
 diffusion_3.5
-  python diffusion_3.5.py "prompt" user-id chat-id
+  python diffusion_3.5.py "prompt" user-id chat-id token num-img
+  python diffusion_3.5.py "A woman with black hair, green eyes, leaking flowing light, in front of a black background, bust, she wears a suit, necklace, gold earrings, only eyes have color , 8k" user123 chat456 "bl_128_1600" 2 sd35 ""
 
 cloudflared
   首次使用配置config.yaml檔案並放到cloudflare資料夾
@@ -126,3 +127,9 @@ cloudflared
   cloudflared tunnel run
 
 
+掛載上效果不錯的lora
+  bl_128_1600 ->搭配3.5
+
+
+webui style model (custom model)
+  rmExperimentalBase_v10 -> 走1.5通道 (base sd1.5)

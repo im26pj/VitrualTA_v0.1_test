@@ -1,94 +1,498 @@
 # generate_gridfs.py for SD 3.5
-import os, sys, json, io
-import datetime
-from diffusers import BitsAndBytesConfig, SD3Transformer2DModel, StableDiffusion3Pipeline
+import os
+import sys
+import json
 import torch
+import io
+import safetensors
+from safetensors.torch import load_file
+from diffusers import StableDiffusionPipeline, DiffusionPipeline, StableDiffusionXLPipeline
+from diffusers.models.attention_processor import LoRAAttnProcessor
+from subprocess import run, PIPE
+import datetime
 from pymongo import MongoClient
 import gridfs
-from dotenv import load_dotenv
+from PIL import Image
+# from dotenv import load_dotenv
 
 # 載入環境變量
-load_dotenv()
+try:
+  from dotenv import load_dotenv
+  load_dotenv()
+except ImportError:
+  print("[INFO] python-dotenv not installed, skipping .env loading")
 
-def main():
-    # 1. 從命令行接收參數
-    if len(sys.argv) < 4:
-        print(json.dumps({"error": "需要 prompt, user_id, chat_id 三個參數"}))
-        sys.exit(1)
+# 判斷是否為 Custom Diffusion 權重 (使用安全方式載入檔案)
+def is_custom_diffusion_lora(lora_path):
+    try:
+        # 使用 safetensors 讀取檔案但不使用 metadata_only 參數
+        state_dict = load_file(lora_path)
+        keys = state_dict.keys()
+        
+        for key in keys:
+            if "lora_te_text_model_encoder" in key or "lora_unet" in key:
+                return True
+    except Exception as e:
+        print(f"[WARN] 無法分析權重檔案: {e}")
+    return False
+
+# 判斷是否為 WebUI/Kohya 權重 (使用安全方式載入檔案)
+def is_webui_lora(lora_path):
+    try:
+        # 使用 safetensors 讀取檔案但不使用 metadata_only 參數
+        state_dict = load_file(lora_path)
+        keys = state_dict.keys()
+        
+        # WebUI/Kohya LoRA 的特徵
+        webui_patterns = [
+            "lora_unet_down_blocks",
+            "lora_unet_mid_block",
+            "lora_unet_up_blocks",
+            "lora_te_text_model"
+        ]
+        
+        for key in keys:
+            for pattern in webui_patterns:
+                if pattern in key:
+                    return True
+        
+        # 檢查是否含有常見的 Kohya 模式
+        kohya_patterns = ["alpha", "lokr", "hada"]
+        for key in keys:
+            for pattern in kohya_patterns:
+                if pattern in key:
+                    return True
+    except Exception as e:
+        print(f"[WARN] 無法分析權重檔案: {e}")
+    return False
+
+# SD 3.5 LoRA 轉換函數
+def convert_lora_for_sd35(lora_path, out_dir):
+    try:
+        os.makedirs(out_dir, exist_ok=True)
+        
+        print(f"[INFO] 開始轉換 LoRA 為 SD 3.5 格式: {lora_path}")
+        
+        # 嘗試使用最新的轉換工具
+        try:
+            result = run([
+                sys.executable, "-m", "diffusers.convert_lora_safetensor_to_diffusers",
+                "--lora_pt_path", lora_path,
+                "--dump_path", out_dir
+            ], check=True, stdout=PIPE, stderr=PIPE)
+            print(f"[INFO] 成功轉換 LoRA 為 SD 3.5 格式: {out_dir}")
+            return True
+        except Exception as e:
+            print(f"[WARN] diffusers 轉換工具失敗: {e}")
+            
+            # 備用方案：直接複製檔案
+            import shutil
+            dst_path = os.path.join(out_dir, "pytorch_lora_weights.safetensors")
+            shutil.copy2(lora_path, dst_path)
+            print(f"[INFO] 已複製 LoRA 權重至 {dst_path} (備用方案)")
+            return True
+    except Exception as e:
+        print(f"[ERROR] 轉換 SD 3.5 LoRA 失敗: {e}")
+        return False
+
+# 使用 PEFT 庫載入 LoRA for SD 3.5
+def load_lora_with_peft_sd35(pipe, lora_path, scale=0.75):
+    try:
+        print(f"[INFO] 嘗試使用 PEFT 載入 SD 3.5 LoRA: {lora_path}")
+        
+        # 確保有必要的套件
+        try:
+            import peft
+            from peft import PeftModel
+        except ImportError:
+            print(f"[INFO] 安裝 peft...")
+            run([sys.executable, "-m", "pip", "install", "peft"], check=True)
+            import peft
+            from peft import PeftModel
+        
+        # SD 3.5 的 PEFT 配置可能需要調整
+        config = peft.LoraConfig(
+            r=8,  # SD 3.5 可能需要更高的秩
+            lora_alpha=scale * 8,
+            target_modules=["q_proj", "k_proj", "v_proj", "out_proj", "to_q", "to_k", "to_v", "to_out.0"],
+            bias="none",
+            task_type="TEXT_GENERATION"
+        )
+        
+        # 使用 PEFT 將模型轉換為 LoRA 模型
+        pipe.unet = PeftModel.from_pretrained(pipe.unet, lora_path, adapter_name="default")
+        if hasattr(pipe, "text_encoder"):
+            pipe.text_encoder = PeftModel.from_pretrained(pipe.text_encoder, lora_path, adapter_name="default")
+        
+        # 設置縮放因子
+        pipe.unet.set_adapter_scale(scale)
+        if hasattr(pipe, "text_encoder"):
+            pipe.text_encoder.set_adapter_scale(scale)
+        
+        print(f"[INFO] 成功使用 PEFT 載入 SD 3.5 LoRA")
+        return True
+    except Exception as e:
+        print(f"[ERROR] PEFT 載入 SD 3.5 LoRA 失敗: {e}")
+        return False
+
+# 使用原生方式載入 LoRA for SD 3.5
+def apply_lora_weights_sd35(pipe, lora_path, scale=0.75):
+    try:
+        print(f"[INFO] 使用原生方式載入 SD 3.5 LoRA: {lora_path}")
+        
+        # 檢查 pipe 類型，針對 SD 3.5 可能需要特殊處理
+        pipe_class = pipe.__class__.__name__
+        print(f"[INFO] 模型類型: {pipe_class}")
+        
+        # SD 3.5 原生 API
+        try:
+            pipe.load_lora_weights(lora_path, adapter_name="default")
+            pipe.set_adapters(["default"], adapter_weights=[scale])
+            print(f"[INFO] 成功使用原生 API 載入 SD 3.5 LoRA: {lora_path}")
+            return True
+        except Exception as e1:
+            print(f"[WARN] SD 3.5 原生 API 載入失敗: {e1}")
+            
+            # 嘗試使用其他方法
+            try:
+                # SD 3.5 備用 API
+                temp_dir = os.path.join(os.path.dirname(lora_path), "temp_sd35_converted")
+                os.makedirs(temp_dir, exist_ok=True)
+                
+                if convert_lora_for_sd35(lora_path, temp_dir):
+                    pipe.load_lora_weights(temp_dir)
+                    print(f"[INFO] 成功使用轉換後載入 SD 3.5 LoRA")
+                    return True
+            except Exception as e2:
+                print(f"[WARN] SD 3.5 備用 API 載入失敗: {e2}")
+                
+                # 最後嘗試: 使用 PEFT 方法
+                return load_lora_with_peft_sd35(pipe, lora_path, scale)
+    except Exception as e:
+        print(f"[ERROR] 所有 SD 3.5 LoRA 載入方法均失敗: {e}")
+        return False
+
+# SD 3.5 特定的 LoRA 調整方法
+def adjust_lora_for_sd35(pipe, lora_path, scale=0.75):
+    try:
+        print(f"[INFO] 嘗試調整 LoRA 以適應 SD 3.5: {lora_path}")
+        
+        # 載入 LoRA 權重
+        state_dict = load_file(lora_path)
+        keys = list(state_dict.keys())
+        
+        # 檢查是否可能與 SD 3.5 相容
+        sd35_compatible = any("transformer_" in k for k in keys) or any("text_encoder_" in k for k in keys)
+        
+        if sd35_compatible:
+            print(f"[INFO] 識別為可能與 SD 3.5 相容的 LoRA")
+            # 使用原生方法嘗試載入
+            return apply_lora_weights_sd35(pipe, lora_path, scale)
+        else:
+            print(f"[INFO] LoRA 需要調整以適應 SD 3.5")
+            
+            # 嘗試轉換和調整 LoRA 權重
+            temp_dir = os.path.join(os.path.dirname(lora_path), "temp_adjusted_sd35")
+            os.makedirs(temp_dir, exist_ok=True)
+            
+            if convert_lora_for_sd35(lora_path, temp_dir):
+                try:
+                    pipe.load_lora_weights(temp_dir)
+                    print(f"[INFO] 成功載入調整後的 SD 3.5 LoRA")
+                    return True
+                except Exception as e:
+                    print(f"[WARN] 載入調整後的 LoRA 失敗: {e}")
+                    
+                    # 最後嘗試: 使用 PEFT 方法
+                    return load_lora_with_peft_sd35(pipe, lora_path, scale)
+            
+            return False
+    except Exception as e:
+        print(f"[ERROR] 調整 LoRA 失敗: {e}")
+        return False
+
+def load_model_sd35(model_path, user_token=None):
+    """智能載入 SD 3.5 模型，包含 4 位元量化及 CPU offload"""
+    print(f"[INFO] 嘗試載入 SD 3.5 模型: {model_path}")
     
-    prompt, userid, chat_id, user_token = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+    # 處理預設模型名稱
+    model_name_map = {
+        "default": "stabilityai/stable-diffusion-3.5-medium", 
+        "sd35": "stabilityai/stable-diffusion-3.5-medium",
+        "sd35-m": "stabilityai/stable-diffusion-3.5-medium",
+        "sd35-l": "stabilityai/stable-diffusion-3.5-large",
+        "sd3-m": "stabilityai/stable-diffusion-3-medium-diffusers",
+    }
+    
+    if model_path in model_name_map:
+        model_path = model_name_map[model_path]
+        print(f"[INFO] 使用預設 SD 3.5 模型: {model_path}")
     
     # 如果沒有提供 user_token，則使用環境變量中的預設值
-    user_token = user_token or os.getenv("DEFAULT_USER_TOKEN")
+    token = user_token or os.getenv("DEFAULT_USER_TOKEN")
+    if token:
+        print(f"[INFO] 使用 Hugging Face 授權令牌")
+    else:
+        print(f"[WARN] 未找到 Hugging Face 授權令牌，可能無法訪問需要授權的模型")
     
-    # 2. 初始化 Diffusers pipeline
     try:
-        # 使用 medium 模型
-        model_id = "stabilityai/stable-diffusion-3.5-medium"
-
-        # 設置量化配置
+        print(f"[INFO] 以 4 位元量化載入 SD 3.5 模型")
+        
+        # 載入必要的庫
+        try:
+            from diffusers import BitsAndBytesConfig, SD3Transformer2DModel
+            from diffusers import StableDiffusion3Pipeline
+            import torch
+        except ImportError as e:
+            print(f"[INFO] 安裝必要的庫: {e}")
+            run([sys.executable, "-m", "pip", "install", "--upgrade", "diffusers", "transformers", "accelerate", "bitsandbytes"], check=True)
+            from diffusers import BitsAndBytesConfig, SD3Transformer2DModel
+            from diffusers import StableDiffusion3Pipeline
+            import torch
+            
+        # 設定 4 位元量化配置
         nf4_config = BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_quant_type="nf4",
             bnb_4bit_compute_dtype=torch.bfloat16
         )
         
-        # 加載 transformer 模型
+        # 先載入並量化 transformer 模型
+        print(f"[INFO] 載入並量化 transformer 模型")
         model_nf4 = SD3Transformer2DModel.from_pretrained(
-            model_id,
-            token=user_token,  # 請確保此 token 有效或使用環境變量
+            model_path,
             subfolder="transformer",
             quantization_config=nf4_config,
-            torch_dtype=torch.bfloat16
+            torch_dtype=torch.bfloat16,
+            token=token
         )
         
-        # 加載完整 pipeline
-        pipeline = StableDiffusion3Pipeline.from_pretrained(
-            model_id, 
-            token=user_token,
+        # 載入完整管道，使用量化後的 transformer
+        print(f"[INFO] 載入完整 pipeline，使用量化後的 transformer")
+        pipe = StableDiffusion3Pipeline.from_pretrained(
+            model_path, 
             transformer=model_nf4,
-            torch_dtype=torch.bfloat16
+            torch_dtype=torch.bfloat16,
+            token=token
         )
-        pipeline.enable_model_cpu_offload()
         
-        # 3. 生成圖像
-        image = pipeline(
-            prompt=prompt,
-            num_inference_steps=40,
-            guidance_scale=4.5,
-            max_sequence_length=512,
-        ).images[0]
-
-        # 4. 把 PIL.Image 轉為 PNG bytes
-        buf = io.BytesIO()
-        image.save(buf, format="PNG")
-        img_bytes = buf.getvalue()
-
-        # 5. 連接 MongoDB 並寫入 GridFS
-        mongo_uri = os.getenv("vtadb", "mongodb://localhost:27017")
-        client = MongoClient(mongo_uri)
-        db = client.get_database(os.getenv("vtadb", "vtadb"))
+        # 啟用 CPU offload 以節省 VRAM
+        print(f"[INFO] 啟用模型 CPU offload")
+        pipe.enable_model_cpu_offload()
         
-        # 使用 images 集合名稱，與 diffusion_1.5.py 保持一致
-        images = gridfs.GridFS(db, collection="images")
-
-        file_id = images.put(
-            img_bytes,
-            filename="generated_sd35.png",
-            metadata={
-                "userId": userid,
-                "contentType": "image/png",
-                "uploadDate": datetime.datetime.utcnow(),
-                "chat_id": chat_id,
-                "model": "stable-diffusion-3.5-medium"  # 添加模型資訊
-            }
-        )
-
-        # 6. 返回 JSON
-        print(json.dumps({"_id": str(file_id)}))
+        return pipe
         
     except Exception as e:
-        print(json.dumps({"error": str(e)}))
+        print(f"[ERROR] 4 位元量化載入失敗: {e}")
+        print(f"[INFO] 嘗試標準方式載入...")
+        
+        try:
+            # 嘗試標準載入方式 (無量化)
+            pipe = DiffusionPipeline.from_pretrained(
+                model_path,
+                torch_dtype=torch.float16,
+                variant="fp16",
+                token=token
+            ).to("cuda")
+            return pipe
+        except Exception as e2:
+            print(f"[ERROR] 標準載入方式失敗: {e2}")
+            print(f"[INFO] 嘗試回退到 SD 3.5-m 模型...")
+            
+            try:
+                from diffusers import BitsAndBytesConfig, StableDiffusion3Pipeline
+                import torch
+                
+                # 設定 4 位元量化配置（與主要載入方式一致）
+                nf4_config = BitsAndBytesConfig(
+                    load_in_4bit=True,
+                    bnb_4bit_quant_type="nf4",
+                    bnb_4bit_compute_dtype=torch.bfloat16
+                )
+                
+                # 直接使用量化設定載入完整模型
+                pipe = StableDiffusion3Pipeline.from_pretrained(
+                    "stabilityai/stable-diffusion-3.5-medium",
+                    quantization_config=nf4_config,
+                    torch_dtype=torch.bfloat16,
+                    token=token
+                )
+                
+                # 啟用 CPU offload 以節省 VRAM
+                pipe.enable_model_cpu_offload()
+                
+                print(f"[INFO] 成功回退載入 SD 3.5-m 模型")
+                return pipe
+                
+            except Exception as e3:
+                print(f"[ERROR] 回退載入失敗: {e3}")
+                # 最終嘗試：無量化的基本載入
+                return DiffusionPipeline.from_pretrained(
+                    "stabilityai/stable-diffusion-3.5-medium",
+                    token=token
+                ).to("cuda")
+
+def main():
+    if len(sys.argv) < 4:
+        print(json.dumps({"error": "需要 prompt, user_id, chat_id 三个參數"}))
+        sys.exit(1)
+
+    prompt, userid, chat_id = sys.argv[1], sys.argv[2], sys.argv[3]
+    lora_name = sys.argv[4] if len(sys.argv) > 4 else None
+    
+    # 添加新參數: 生成圖片數量
+    num_images = 1  # 默認生成一張
+    if len(sys.argv) > 5:
+        try:
+            num_images = int(sys.argv[5])
+            # 限制最大生成數量，避免資源耗盡
+            num_images = min(max(1, num_images), 4)  # SD 3.5 資源需求較大，限制最多4張
+        except ValueError:
+            print(f"[WARN] 無效的圖片數量參數: {sys.argv[5]}，使用默認值 1")
+            num_images = 1
+    
+    # 新增參數: 指定要使用的模型
+    model_arg = sys.argv[6] if len(sys.argv) > 6 else "default"
+    
+    print(f"[INFO] 將生成 {num_images} 張圖片，指定模型: {model_arg}")
+    
+    # 載入 SD 3.5 模型
+    pipe = load_model_sd35(model_arg)
+
+    # 2. 如果有指定 LoRA
+    if lora_name:
+        # 檢查 lora_name 是否已包含 .safetensors 副檔名
+        if lora_name.endswith('.safetensors'):
+            base_name = lora_name[:-12]  # 移除 .safetensors
+            weight_file = os.path.join("loras", lora_name)
+        else:
+            base_name = lora_name
+            weight_file = os.path.join("loras", f"{lora_name}.safetensors")
+        
+        lora_dir = os.path.abspath(os.path.join("loras", base_name))
+        
+        # 檢查文件是否存在
+        if not os.path.exists(weight_file):
+            print(json.dumps({"error": f"LoRA 文件不存在: {weight_file}"}))
+            sys.exit(1)
+            
+        try:
+            # 嘗試載入 LoRA - SD 3.5 專用方法
+            success = False
+            for method_name, scale in [
+                ("sd35_native", 0.75),   # SD 3.5 原生方法
+                ("sd35_adjust", 0.75),   # SD 3.5 調整方法
+                ("sd35_peft", 0.75),     # SD 3.5 PEFT 方法
+                ("webui", 0.6),          # WebUI 格式支援
+                ("a1111", 0.6),          # A1111 格式支援
+                ("compatibility", 0.5)   # 相容性最低
+            ]:
+                print(f"[INFO] 嘗試使用 {method_name} 方式載入 SD 3.5 LoRA")
+                
+                if method_name == "sd35_native":
+                    success = apply_lora_weights_sd35(pipe, weight_file, scale)
+                elif method_name == "sd35_adjust":
+                    success = adjust_lora_for_sd35(pipe, weight_file, scale)
+                elif method_name == "sd35_peft":
+                    success = load_lora_with_peft_sd35(pipe, weight_file, scale)
+                elif method_name == "webui":
+                    # 嘗試 WebUI 格式的載入
+                    if is_webui_lora(weight_file):
+                        success = apply_lora_weights_sd35(pipe, weight_file, scale)
+                        print(f"[INFO] 成功使用 WebUI 格式載入 SD 3.5 LoRA")
+                        break
+                elif method_name == "a1111":
+                    # 嘗試 A1111 格式的載入
+                    a1111_compatible = False
+                    try:
+                        # 檢查是否為 A1111 格式的 LoRA
+                        state_dict = load_file(weight_file)
+                        keys = state_dict.keys()
+                        a1111_compatible = any("lora_unet" in k for k in keys) and any("text_encoder" in k for k in keys)
+                    except:
+                        pass
+                    
+                    if a1111_compatible:
+                        success = apply_lora_weights_sd35(pipe, weight_file, scale)
+                        print(f"[INFO] 成功使用 A1111 格式載入 SD 3.5 LoRA")
+                        break
+                elif method_name == "compatibility":
+                    # 最後的嘗試：使用多種方法的組合
+                    try:
+                        pipe.load_lora_weights(weight_file)
+                        success = True
+                    except:
+                        print(f"[WARN] 相容性模式載入失敗")
+                        success = False
+                
+                if success:
+                    print(f"[INFO] 成功使用 {method_name} 方式載入 SD 3.5 LoRA")
+                    break
+            
+            if not success:
+                print(json.dumps({"error": "所有 LoRA 載入方法均失敗，將使用原始模型生成"}))
+                
+        except Exception as e:
+            print(json.dumps({"error": f"LoRA 處理過程發生錯誤: {str(e)}"}))
+            sys.exit(1)
+
+    # 3. 產圖 - SD 3.5 產生方式可能不同
+    try:
+        # 生成多張圖片 - SD 3.5 可能需要特殊參數
+        images = pipe(
+            prompt=prompt,
+            num_inference_steps=40,  # SD 3.5 通常步數可以少一些
+            guidance_scale=3.0,      # SD 3.5 推薦的 guidance scale 較小
+            num_images_per_prompt=num_images
+        ).images
+        
+        # 儲存所有生成圖片的ID
+        all_file_ids = []
+        
+        # 4. 將每張圖片上傳到 MongoDB GridFS
+        for i, image in enumerate(images):
+            buf = io.BytesIO()
+            image.save(buf, format="PNG")
+            img_bytes = buf.getvalue()
+            
+            try:
+                mongo_uri = os.getenv("vtadb", "mongodb://localhost:27017")
+                client = MongoClient(mongo_uri)
+                db = client.get_database(os.getenv("vtadb", "vtadb"))
+                gridfs_images = gridfs.GridFS(db, collection="images")
+                file_id = gridfs_images.put(
+                    img_bytes,
+                    filename=f"generated_{i+1}.png",
+                    metadata={
+                        "userId": userid,
+                        "contentType": "image/png",
+                        "uploadDate": datetime.datetime.utcnow(),
+                        "chat_id": chat_id,
+                        "model":model_arg,
+                        "lora": lora_name or "none",
+                        "prompt": prompt,
+                        "batch_index": i+1,
+                        "batch_total": num_images
+                    }
+                )
+                all_file_ids.append(str(file_id))
+                
+                # 關閉每次上傳後的 MongoDB 連接以節省資源
+                client.close()
+                
+            except Exception as e:
+                print(f"[WARN] 第 {i+1} 張圖片上傳到 MongoDB 失敗: {str(e)}")
+        
+        # 返回所有生成圖片的ID
+        if len(all_file_ids) == 1:
+            # 如果只有一張圖片，保持原始輸出格式
+            print(json.dumps({"_id": all_file_ids[0]}))
+        else:
+            # 如果有多張圖片，返回ID列表
+            print(json.dumps({"_ids": all_file_ids}))
+            
+    except Exception as e:
+        print(json.dumps({"error": f"SD 3.5 生成圖像失敗: {str(e)}"}))
         sys.exit(1)
 
 if __name__ == "__main__":

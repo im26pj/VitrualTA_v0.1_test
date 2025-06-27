@@ -1,5 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { clearAuthToken } from "../../utils/auth";
+import { changePassword } from "../../../api_servers"; // 引入 API 函數
 
 export const CPassword = () => {
   const [showDropdown, setShowDropdown] = useState(false);
@@ -9,6 +11,8 @@ export const CPassword = () => {
   const [newPassword, setNewPassword] = useState("");
   const [checkPassword, setCheckPassword] = useState("");
   const [message, setMessage] = useState("");
+  const [messageType, setMessageType] = useState<"success" | "error">("success");
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleDropdownToggle = () => {
     setShowDropdown(!showDropdown);
@@ -19,25 +23,49 @@ export const CPassword = () => {
     setShowDropdown(false);
   };
 
-  const handleChangePassword = () => {
-    const storedPassword = "1234";
+  const handleSignOut = () => {
+    clearAuthToken();
+    navigate('/signin');
+  };
 
-    if (oldPassword !== storedPassword) {
-      setMessage("❌ 舊密碼錯誤！");
-      return;
-    }
-
+  const handleChangePassword = async () => {
+    // 先進行前端驗證
     if (newPassword !== checkPassword) {
       setMessage("❌ 新密碼不一致！");
+      setMessageType("error");
       return;
     }
 
     if (newPassword.length < 4) {
       setMessage("❌ 密碼至少要 4 個字元！");
+      setMessageType("error");
       return;
     }
 
-    setMessage("✅ 密碼修改成功！");
+    setIsLoading(true);
+    
+    try {
+      // 呼叫 API 進行密碼變更
+      const response = await changePassword(oldPassword, newPassword);
+      
+      if (response.success) {
+        setMessage("✅ " + response.message);
+        setMessageType("success");
+        // 清空輸入欄位
+        setOldPassword("");
+        setNewPassword("");
+        setCheckPassword("");
+      } else {
+        setMessage("❌ " + response.message);
+        setMessageType("error");
+      }
+    } catch (error: any) {
+      console.error("變更密碼錯誤:", error);
+      setMessage("❌ " + (error.message || "變更密碼失敗，請稍後再試"));
+      setMessageType("error");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -55,54 +83,60 @@ export const CPassword = () => {
         `}
       </style>
 
-    {/* Header + Dropdown */}
-    <div className="w-full relative z-10">
-      <div className="w-full bg-[#B5D1E1] py-6 px-8 flex items-center shadow-md fixed top-0 left-0 right-0 rounded-b-[28px]">
-        <div
-          className="text-white text-3xl md:text-4xl font-kavoon cursor-pointer"
-          onClick={() => handleNavigate("/second")}
-        >
-          Virtual TA
+      {/* Header + Dropdown */}
+      <div className="w-full relative z-10">
+        <div className="w-full bg-[#B5D1E1] py-6 px-8 flex items-center shadow-md fixed top-0 left-0 right-0 rounded-b-[28px]">
+          <div
+            className="text-white text-3xl md:text-4xl font-kavoon cursor-pointer"
+            onClick={() => handleNavigate("/second")}
+          >
+            Virtual TA
+          </div>
+
+          <div className="ml-auto flex items-center gap-4">
+            <div className="text-white text-2xl md:text-4xl font-kavoon">
+              Personal information settings
+            </div>
+            <img
+              className="w-[70px] h-[70px] object-cover cursor-pointer"
+              alt="User Avatar"
+              src="/pic/2021781015212021.png"
+              onClick={handleDropdownToggle}
+            />
+          </div>
         </div>
 
-        <div className="ml-auto flex items-center gap-4">
-          <div className="text-white text-2xl md:text-4xl font-kavoon">
-            Personal information settings
+        {/* Dropdown menu */}
+        {showDropdown && (
+          <div className="absolute top-[100px] right-8 w-64 bg-gray-300 rounded-lg shadow-md z-20">
+            <ul className="py-2">
+              {[
+                { label: "Account Management", path: "/member-area" },
+                { label: "Learning System", path: "/chatroom" },
+                { label: "Group Studying", path: "/studying-group" },
+                { label: "Learning Outcomes Tracking", path: "/outcomes-tracking" },
+                { label: "Setting Vtuber", path: "/setvtuber" },
+                { label: "Sign Out", onClick: handleSignOut, className: "text-red-600" },
+              ].map((item, index) => (
+                <li
+                  key={index}
+                  className={`px-6 py-3 hover:bg-gray-400 cursor-pointer text-center font-inknut ${item.className || 'text-black'}`}
+                  onClick={() => {
+                    if (item.onClick) {
+                      item.onClick();
+                    } else if (item.path) {
+                      handleNavigate(item.path);
+                    }
+                  }}
+                >
+                  {item.label}
+                </li>
+              ))}
+            </ul>
           </div>
-          <img
-            className="w-[70px] h-[70px] object-cover cursor-pointer"
-            alt="User Avatar"
-            src="/pic/2021781015212021.png"
-            onClick={handleDropdownToggle}
-          />
-        </div>
+        )}
       </div>
 
-      {/* Dropdown menu */}
-      {showDropdown && (
-        <div className="absolute top-[100px] right-8 w-64 bg-gray-300 rounded-lg shadow-md z-20">
-          <ul className="py-2">
-            {[
-              { label: "Account Management", path: "/member-area" },
-              { label: "Learning System", path: "/chatroom" },
-              { label: "Group Studying", path: "/studying-group" },
-              { label: "Learning Outcomes Tracking", path: "/outcomes-tracking" },
-              { label: "Setting Vtuber", path: "/setvtuber" },
-            ].map((item, index) => (
-              <li
-                key={index}
-                className="px-6 py-3 text-black hover:bg-gray-400 cursor-pointer text-center font-inknut"
-                onClick={() => handleNavigate(item.path)}
-              >
-                {item.label}
-              </li>
-            ))}
-                </ul>
-              </div>
-            )}
-          </div>
-
-   
       {/* Password Form */}
       <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-lg mt-[160px] font-inknut">
         <div className="mb-4">
@@ -134,12 +168,17 @@ export const CPassword = () => {
         </div>
         <button
           onClick={handleChangePassword}
-          className="w-full bg-gray-300 hover:bg-gray-400 text-lg font-bold py-3 rounded-xl"
+          disabled={isLoading}
+          className={`w-full ${
+            isLoading ? "bg-gray-400" : "bg-gray-300 hover:bg-gray-400"
+          } text-lg font-bold py-3 rounded-xl`}
         >
-          OK
+          {isLoading ? "處理中..." : "OK"}
         </button>
         {message && (
-          <div className="text-center mt-4 text-base font-semibold text-red-600">
+          <div className={`text-center mt-4 text-base font-semibold ${
+            messageType === "success" ? "text-green-600" : "text-red-600"
+          }`}>
             {message}
           </div>
         )}

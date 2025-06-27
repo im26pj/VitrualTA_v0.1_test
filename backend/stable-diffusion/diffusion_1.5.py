@@ -690,8 +690,10 @@ def main():
                         "contentType": "image/png",
                         "uploadDate": datetime.datetime.utcnow(),
                         "chat_id": chat_id,
-                        "model": "stable-diffusion-1.5",
+                        "model":model_arg,
+                        "custom_model": model_arg if model_arg not in ["default", "sd15", "sd21", "sdxl"] else "none",
                         "lora": lora_name or "none",
+                        "prompt": prompt,
                         "batch_index": i+1,
                         "batch_total": num_images
                     }

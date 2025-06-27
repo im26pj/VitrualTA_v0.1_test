@@ -461,3 +461,11 @@ export const generateGraph = async (
 export const deleteChatHistory = async (chatId: string): Promise<any> => {
   return apiDelete(`/api/chat/${chatId}`);
 };
+
+// 添加變更密碼的 API 函數
+export const changePassword = async (oldPassword: string, newPassword: string): Promise<any> => {
+  return apiPost('/api/cpassword', {
+    oldPassword,
+    newPassword
+  });
+};

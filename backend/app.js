@@ -6,7 +6,6 @@ var logger = require('morgan'); // Morgan logger
 var cors = require('cors');
 var mongoose = require('mongoose');
 var indexRouter = require('./routes/index');
-var usersRouter = require('./routes/users');
 var apiRouter = require('./routes/api');
 var app = express();
 const debug = require('debug')('app:app'); // Your existing debug instance
@@ -125,7 +124,6 @@ app.use((req, res, next) => {
 
 // 掛載 api 路由
 app.use('/api', apiRouter);
-app.use('/users', usersRouter);
 app.use('/', indexRouter);
 
 // ======== 所有非 API 路由交給 React 處理 ========

@@ -141,7 +141,7 @@ export const ChatRoom = (): JSX.Element => {
   // 在 ChatRoom 組件的開頭添加以下狀態變數
   const [showToolMenu, setShowToolMenu] = useState(false);
   const [showModelOptions, setShowModelOptions] = useState(false);
-  const [selectedModel, setSelectedModel] = useState<"1.5" | "2.1" | "xl" | "3.5">("1.5"); // 預設為 1.5
+  const [selectedModel, setSelectedModel] = useState<"sd15" | "sd21" | "sdxl" | "sd3-m" | "sd35-m" | "sd35-l">("sd15"); // 預設為 1.5
   const toolButtonRef = useRef<HTMLButtonElement>(null);
 
   // 在 ChatRoom 組件內添加新的狀態變數
@@ -1490,10 +1490,12 @@ export const ChatRoom = (): JSX.Element => {
                     <div className="flex items-center relative">
                       <span>圖片生成模型: </span>
                       <span className="font-semibold ml-1">
-                        {selectedModel === "1.5" && "Stable-Diffusion 1.5"}
-                        {selectedModel === "2.1" && "Stable-Diffusion 2.1"}
-                        {selectedModel === "xl" && "Stable-Diffusion XL"}
-                        {selectedModel === "3.5" && "Stable-Diffusion 3.5"}
+                        {selectedModel === "sd15" && "Stable-Diffusion 1.5"}
+                        {selectedModel === "sd21" && "Stable-Diffusion 2.1"}
+                        {selectedModel === "sdxl" && "Stable-Diffusion XL"}
+                        {selectedModel === "sd3-m" && "Stable-Diffusion 3 medium"}
+                        {selectedModel === "sd35-m" && "Stable-Diffusion 3.5 medium"}
+                        {selectedModel === "sd35-l" && "Stable-Diffusion 3.5 Large"}
                       </span>
                       <button
                         onClick={(e) => {
@@ -1521,15 +1523,17 @@ export const ChatRoom = (): JSX.Element => {
                       {showModelOptions && (
                         <div className="absolute bottom-6 left-0 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-30 w-52 model-options-menu animate-slide-up">
                           {[
-                            { id: "1.5", name: "Stable-Diffusion 1.5" },
-                            { id: "2.1", name: "Stable-Diffusion 2.1" },
-                            { id: "xl", name: "Stable-Diffusion XL" },
-                            { id: "3.5", name: "Stable-Diffusion 3.5" },
+                            { id: "sd15", name: "Stable-Diffusion 1.5" },
+                            { id: "sd21", name: "Stable-Diffusion 2.1" },
+                            { id: "sdxl", name: "Stable-Diffusion XL" },
+                            { id: "sd3-m", name: "Stable-Diffusion 3 medium" },
+                            { id: "sd35-m", name: "Stable-Diffusion 3.5 medium" },
+                            { id: "sd35-l", name: "Stable-Diffusion 3.5 Large" }
                           ].map((model) => (
                             <div 
                               key={model.id}
                               onClick={() => {
-                                setSelectedModel(model.id as "1.5" | "2.1" | "xl" | "3.5");
+                                setSelectedModel(model.id as "sd15" | "sd21" | "sdxl" | "sd3-m" | "sd35-m" | "sd35-l");
                                 setShowModelOptions(false);
                               }}
                               className={`px-4 py-2 cursor-pointer hover:bg-gray-100 ${
