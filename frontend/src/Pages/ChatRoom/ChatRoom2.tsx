@@ -186,9 +186,11 @@ export const ChatRoom = (): JSX.Element => {
 
   // 在 ChatRoom 組件的開頭添加以下狀態變數
   const [showToolMenu, setShowToolMenu] = useState(false);
-  const [showModelOptions, setShowModelOptions] = useState(false);
   const [selectedModel, setSelectedModel] = useState<"sd15" | "sd21" | "sdxl" | "sd3-m" | "sd35-m" | "sd35-l">("sd15"); // 預設為 1.5
   const toolButtonRef = useRef<HTMLButtonElement>(null);
+
+  // 新增模型選單狀態
+  const [showModelOptions, setShowModelOptions] = useState(false);
 
   // 在 ChatRoom 組件內添加新的狀態變數
   const [showImageCountOptions, setShowImageCountOptions] = useState(false);
@@ -1144,23 +1146,19 @@ export const ChatRoom = (): JSX.Element => {
   // 修改點擊外部區域關閉選單的邏輯
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      // 檢查是否點擊到模型選單
       const modelMenuElement = document.querySelector('.model-options-menu');
       const modelButtonElement = document.querySelector('[data-model-button]');
-      
-      // 檢查是否點擊到數量選單
       const countMenuElement = document.querySelector('.image-count-menu');
       const countButtonElement = document.querySelector('[data-count-button]');
       
-      // 確保點擊不是在按鈕或菜單上才關閉菜單
-      if (!modelMenuElement?.contains(event.target as Node) && 
-          !modelButtonElement?.contains(event.target as Node) && 
+      if (!modelMenuElement?.contains(event.target as Node) &&
+          !modelButtonElement?.contains(event.target as Node) &&
           showModelOptions) {
         setShowModelOptions(false);
       }
       
-      if (!countMenuElement?.contains(event.target as Node) && 
-          !countButtonElement?.contains(event.target as Node) && 
+      if (!countMenuElement?.contains(event.target as Node) &&
+          !countButtonElement?.contains(event.target as Node) &&
           showImageCountOptions) {
         setShowImageCountOptions(false);
       }
@@ -1896,7 +1894,7 @@ export const ChatRoom = (): JSX.Element => {
                       <span>圖片生成模型: </span>
                       <span className="font-semibold ml-1">
                         {selectedModel === "sd15" && "Stable-Diffusion 1.5"}
-                        {selectedModel === "sd21" && "Stable-Diffusion 2.1"}
+                        {selectedModel === "sd21" && "Stable-Diffusion  2.1"}
                         {selectedModel === "sdxl" && "Stable-Diffusion XL"}
                         {selectedModel === "sd3-m" && "Stable-Diffusion 3 medium"}
                         {selectedModel === "sd35-m" && "Stable-Diffusion 3.5 medium"}
@@ -1924,26 +1922,28 @@ export const ChatRoom = (): JSX.Element => {
                         </svg>
                       </button>
                       
-                      {/* 模型選單 - 改为绝对定位，並加上背景和圓角 */}
+                      {/* 彈出式模型選單 */}
                       {showModelOptions && (
-                        <div className="absolute top-8 left-0 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-30 w-48 max-h-60 overflow-y-auto">
-                          {/* 顯示當前選擇的模型類型作為標題 */}
-                          <div className="sticky top-0 bg-gray-100 p-2 font-bold border-b border-gray-300">
-                            模型選擇
-                          </div>
-                          
-                          {models.map((model) => (
+                        <div className="absolute bottom-6 left-0 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-30 w-52 model-options-menu animate-slide-up">
+                          {Object.entries({
+                            sd15: "Stable-Diffusion 1.5",
+                            sd21: "Stable-Diffusion 2.1", 
+                            sdxl: "Stable-Diffusion XL",
+                            "sd3-m": "Stable-Diffusion 3 medium",
+                            "sd35-m": "Stable-Diffusion 3.5 medium",
+                            "sd35-l": "Stable-Diffusion 3.5 Large"
+                          }).map(([key, name]) => (
                             <div 
-                              key={model.id}
+                              key={key}
                               onClick={() => {
-                                setSelectedModel(model.id as "sd15" | "sd21" | "sdxl" | "sd3-m" | "sd35-m" | "sd35-l");
+                                setSelectedModel(key as "sd15" | "sd21" | "sdxl" | "sd3-m" | "sd35-m" | "sd35-l");
                                 setShowModelOptions(false);
                               }}
                               className={`px-4 py-2 cursor-pointer hover:bg-gray-100 ${
-                                selectedModel === model.id ? 'bg-blue-50 text-blue-600 font-medium' : ''
+                                selectedModel === key ? 'bg-blue-50 text-blue-600 font-medium' : ''
                               }`}
                             >
-                              {model.filename}
+                              {name}
                             </div>
                           ))}
                         </div>

@@ -40,4 +40,18 @@
 ** 簡介 **
     使用模型
     文字模型 llama3.2-vision:11b
-    圖片模型 stabilityai/stable-diffusion-3.5-medium / runwayml/stable-diffusion-v1-5
+    圖片模型 
+        diffusion_1.5.py
+        "default": "runwayml/stable-diffusion-v1-5",
+        "sd15": "runwayml/stable-diffusion-v1-5",
+        "sd21": "stabilityai/stable-diffusion-2-1",
+        "sdxl": "stabilityai/stable-diffusion-xl-base-1.0",
+
+        diffusion_3.5.py
+        "default": "stabilityai/stable-diffusion-3.5-medium", 
+        "sd35": "stabilityai/stable-diffusion-3.5-medium",
+        "sd35-m": "stabilityai/stable-diffusion-3.5-medium",
+        "sd35-l": "stabilityai/stable-diffusion-3.5-large",
+        "sd3-m": "stabilityai/stable-diffusion-3-medium-diffusers",
+
+    抓取模型當前可選 本地上傳 / 網址抓取(目前只支援CIVITAI網站) -> 請自行注意模型發布者的使用條款
