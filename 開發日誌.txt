@@ -9,9 +9,9 @@
 2.Fine-tune
 3.自動出題方法(還沒想)
 
-chatroom->ChatRoom2.tsx(登入的頁面)
+chatroom -> ChatRoom2.tsx(登入的頁面)
 
-Chatroom1->ChatRoom12.tsx(沒登入的頁面)
+Chatroom1 -> ChatRoom12.tsx(沒登入的頁面)
 
 *待驗證功能*
 cookie jwt 後端發行簽證資訊給前端存入cookie 
@@ -42,6 +42,16 @@ Token 包含時間戳記防止重放攻擊
 不洩露敏感錯誤資訊
 詳細記錄錯誤但只回傳安全訊息
   
+*工作計畫*
+  使用url的要去抓取圖片
+  方法一
+  使用以下api抓取模型downloadURL -> 下載 -> 如果是zip解壓縮 -> 存入 mongodb -> 紀錄userId 、 modelType 等參數
+  {https://civitai.com/api/v1/model-versions/{modelVersionId}}
+
+  方法二
+  偷懶一點直接擷取使用者貼上網址(findone modelVersionId)結尾的id然後串接以下網址
+  https://civitai.com/api/download/models/{modelVersionId}  -> 下載 -> 如果是zip解壓縮 -> 存入 mongodb -> 紀錄userId 、 modelType 等參數
+  暫時完成詳細功能等待驗證
 
 *代辦事項*
   重構conversation_history邏輯，前端不再收集完整對話紀錄傳入改成只傳入最新prompt到後段，後端透過去資料庫撈對話紀錄拚接後再一起傳入ollama避免報http413錯誤
@@ -52,6 +62,14 @@ Token 包含時間戳記防止重放攻擊
   提供direct方案讓使用者promot直接送達diffusion
   修好tunnel = new的圖片生成存檔使用array存入img_id內
   修復回傳 base_64功能
+
+  新增token選項存入資料庫的選項讓使用者可以使用自身的token，
+  新增api 讓使用者上傳想使用的 模型 / lora檔案 -> 存入資料庫
+
+
+*之後可能出現的雷點*
+  上傳檔案超過100mb會失敗 -> cloudflared 免費單次api傳輸最大上限
+
 
 *使用方式*
 react前端: 

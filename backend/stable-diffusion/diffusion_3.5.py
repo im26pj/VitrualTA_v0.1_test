@@ -332,6 +332,69 @@ def load_model_sd35(model_path, user_token=None):
                     token=token
                 ).to("cuda")
 
+# 新增函數：從 GridFS 獲取檔案並保存到臨時目錄
+def get_file_from_gridfs(file_name, collection_name, temp_dir=None):
+    try:
+        if temp_dir is None:
+            temp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp_files")
+        
+        os.makedirs(temp_dir, exist_ok=True)
+        
+        print(f"[INFO] 從 GridFS {collection_name} 獲取檔案: {file_name}")
+        
+        # 連接 MongoDB
+        mongo_uri = os.getenv("vtadb", "mongodb://localhost:27017")
+        client = MongoClient(mongo_uri)
+        db = client.get_database(os.getenv("vtadb", "vtadb"))
+        
+        # 選擇相應的 GridFS 集合
+        fs = gridfs.GridFS(db, collection=collection_name)
+        
+        # 嘗試通過文件名找到文件
+        query = {"filename": file_name}
+        if not fs.exists(query):
+            # 如果沒找到，嘗試使用 ObjectId (如果提供的是ID)
+            try:
+                from bson.objectid import ObjectId
+                if ObjectId.is_valid(file_name):
+                    query = {"_id": ObjectId(file_name)}
+                    if not fs.exists(query):
+                        print(f"[ERROR] 在 {collection_name} 中找不到檔案 (ID): {file_name}")
+                        return None
+            except Exception as e:
+                print(f"[ERROR] 檔案查詢失敗: {e}")
+                return None
+        
+        # 獲取文件
+        grid_file = fs.find_one(query)
+        if grid_file is None:
+            print(f"[ERROR] 在 {collection_name} 中找不到檔案: {file_name}")
+            return None
+        
+        # 保存到臨時文件
+        actual_filename = grid_file.filename
+        
+        # 使用安全的文件名
+        safe_filename = ''.join(c for c in actual_filename if c.isalnum() or c in '._- ')
+        
+        # 建立臨時文件路徑
+        temp_file_path = os.path.join(temp_dir, safe_filename)
+        
+        # 寫入檔案
+        with open(temp_file_path, 'wb') as f:
+            f.write(grid_file.read())
+        
+        print(f"[INFO] 檔案已保存到臨時位置: {temp_file_path}")
+        
+        # 關閉 MongoDB 連接
+        client.close()
+        
+        return temp_file_path
+    except Exception as e:
+        print(f"[ERROR] 從 GridFS 獲取檔案失敗: {e}")
+        return None
+
+# 修改現有的 main 函數來使用 GridFS
 def main():
     if len(sys.argv) < 4:
         print(json.dumps({"error": "需要 prompt, user_id, chat_id 三个參數"}))
@@ -356,24 +419,35 @@ def main():
     
     print(f"[INFO] 將生成 {num_images} 張圖片，指定模型: {model_arg}")
     
+    # 檢查模型是否是自定義模型（webui-style-model-name）
+    custom_model_path = None
+    if model_arg and not model_arg.startswith(("default", "sd35", "sd3-")):
+        # 從 GridFS 獲取自定義模型
+        custom_model_path = get_file_from_gridfs(model_arg, "models", 
+                                              os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp_models"))
+        if custom_model_path:
+            print(f"[INFO] 已從 GridFS 獲取自定義模型: {custom_model_path}")
+            model_arg = custom_model_path
+        else:
+            print(f"[WARN] 找不到自定義模型 {model_arg}，將使用默認模型")
+            model_arg = "default"
+    
     # 載入 SD 3.5 模型
     pipe = load_model_sd35(model_arg)
 
     # 2. 如果有指定 LoRA
     if lora_name:
-        # 檢查 lora_name 是否已包含 .safetensors 副檔名
-        if lora_name.endswith('.safetensors'):
-            base_name = lora_name[:-12]  # 移除 .safetensors
-            weight_file = os.path.join("loras", lora_name)
-        else:
-            base_name = lora_name
-            weight_file = os.path.join("loras", f"{lora_name}.safetensors")
+        # 從 GridFS 獲取 LoRA 檔案
+        lora_temp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp_loras")
+        weight_file = get_file_from_gridfs(lora_name, "loras", lora_temp_dir)
         
-        lora_dir = os.path.abspath(os.path.join("loras", base_name))
+        if not weight_file:
+            # 嘗試添加 .safetensors 後綴再次查找
+            if not lora_name.endswith('.safetensors'):
+                weight_file = get_file_from_gridfs(f"{lora_name}.safetensors", "loras", lora_temp_dir)
         
-        # 檢查文件是否存在
-        if not os.path.exists(weight_file):
-            print(json.dumps({"error": f"LoRA 文件不存在: {weight_file}"}))
+        if not weight_file:
+            print(json.dumps({"error": f"LoRA 文件不存在於 GridFS: {lora_name}"}))
             sys.exit(1)
             
         try:
@@ -468,7 +542,7 @@ def main():
                         "contentType": "image/png",
                         "uploadDate": datetime.datetime.utcnow(),
                         "chat_id": chat_id,
-                        "model":model_arg,
+                        "model": model_arg if not custom_model_path else os.path.basename(custom_model_path),
                         "lora": lora_name or "none",
                         "prompt": prompt,
                         "batch_index": i+1,
@@ -482,6 +556,19 @@ def main():
                 
             except Exception as e:
                 print(f"[WARN] 第 {i+1} 張圖片上傳到 MongoDB 失敗: {str(e)}")
+        
+        # 清理臨時檔案
+        try:
+            # 清理不再需要的臨時文件
+            if 'weight_file' in locals() and weight_file and os.path.exists(weight_file):
+                os.remove(weight_file)
+                print(f"[INFO] 已清理臨時 LoRA 檔案: {weight_file}")
+                
+            if custom_model_path and os.path.exists(custom_model_path):
+                os.remove(custom_model_path)
+                print(f"[INFO] 已清理臨時模型檔案: {custom_model_path}")
+        except Exception as e:
+            print(f"[WARN] 清理臨時檔案失敗: {e}")
         
         # 返回所有生成圖片的ID
         if len(all_file_ids) == 1:

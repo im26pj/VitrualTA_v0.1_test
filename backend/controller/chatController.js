@@ -1,4 +1,4 @@
-//const axios = require('axios');
+const axios = require('axios');
 const { default: ollama } = require('ollama');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
@@ -16,6 +16,7 @@ const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:3000';
 
 // 引入 child_process 來運行 Python 腳本
 const { spawn } = require('child_process');
+const { head } = require('../routes/api');
 
 // 修改 spawn_1 函數
 const spawn_1 = async function(prompt, userId, chat_id, lora_name, num_images, model_arg, webui_style_model_name) {
@@ -265,6 +266,82 @@ const upload = multer({
     }
   }
 }).array('images', 5); // 允許最多上傳5張圖片
+
+// 配置 multer 存儲 - 用於 LoRA 檔案
+const loraStorage = multer.memoryStorage();
+const uploadLora = multer({ 
+  storage: loraStorage,
+  limits: {
+    fileSize: 15 * 1024 * 1024 * 1024, // 15GB 限制
+  },
+  fileFilter: (req, file, cb) => {
+    // 如果提供了 filePath 參數，則不需要實際檔案
+    if (req.body && req.body.filePath) {
+      cb(null, true);
+      return;
+    }
+    
+    // 檢查檔案類型
+    if (file.fieldname === 'loraFile') {
+      // LoRA 檔案必須是指定格式
+      if (file.originalname.endsWith('.safetensors') || 
+          file.originalname.endsWith('.ckpt') || 
+          file.originalname.endsWith('.pt') ||
+          file.originalname.endsWith('.zip')) {
+        cb(null, true);
+      } else {
+        cb(new Error('LoRA 檔案必須是 .safetensors, .ckpt, .pt 或 .zip 格式'));
+      }
+    } 
+    else if (file.fieldname === 'loraImage') {
+      // 圖片檔案必須是圖片格式
+      if (file.mimetype.startsWith('image/')) {
+        cb(null, true);
+      } else {
+        cb(new Error('圖片檔案必須是有效的圖片格式'));
+      }
+    } 
+    else {
+      cb(new Error('未知的欄位名稱'));
+    }
+  }
+}).fields([
+  { name: 'loraFile', maxCount: 1 },  // LoRA 檔案
+  { name: 'loraImage', maxCount: 1 }  // LoRA 圖片
+]);
+
+// 配置 multer 存儲 - 用於模型檔案
+const modelStorage = multer.memoryStorage();
+const uploadModel = multer({ 
+  storage: modelStorage,
+  limits: {
+    fileSize: 30 * 1024 * 1024 * 1024, // 30GB 限制
+  },
+  fileFilter: (req, file, cb) => {
+    // 如果提供了 filePath 參數，則不需要實際檔案
+    if (req.body && req.body.filePath) {
+      cb(null, true);
+      return;
+    }
+    
+    // 檢查是否為支援的模型格式或圖片檔案
+    if (file && (
+        // 支援的模型格式
+        file.originalname.endsWith('.safetensors') || 
+        file.originalname.endsWith('.ckpt') || 
+        file.originalname.endsWith('.bin') ||
+        // 支援的圖片格式
+        file.mimetype.startsWith('image/')
+    )) {
+      cb(null, true);
+    } else {
+      cb(new Error('只允許上傳 .safetensors, .ckpt, .bin 或圖片檔案'));
+    }
+  }
+}).fields([
+  { name: 'modelFile', maxCount: 1 },  // 模型檔案
+  { name: 'modelImage', maxCount: 1 }  // 模型圖片
+]); // 使用 fields 允許上傳多種類型的檔案
 
 // 1. 首先添加內部函數 
 async function generateGraphInternal(content, userId, chat_id, graph_type, tunnel = "NEW", model = "sd15", lora_name = "", genpic_num = 1, webui_style_model_name = "") {
@@ -1397,3 +1474,885 @@ async function addImageIdToChat(userId, chat_id, imageId) {
     debug('將圖片 ID 添加到對話記錄失敗:', dbErr);
   }
 }
+
+// 上傳 LoRA 檔案
+exports.uploadLora = async (req, res) => {
+  try {
+    // 驗證用戶是否已登入
+    if (!req.headers.authorization?.startsWith('Bearer ')) {
+      return res.status(401).json({ success: false, message: '請先登入' });
+    }
+
+    const token = req.headers.authorization.split(' ')[1];
+    const decoded = jwt.verify(token, JWT_SECRET);
+
+    // 使用 Promise 包裝 multer 上傳過程，以便更好地處理錯誤
+    const handleUpload = () => {
+      return new Promise((resolve, reject) => {
+        uploadLora(req, res, function(err) {
+          if (err) {
+            debug('Multer error (LoRA):', err);
+            reject(err);
+            return;
+          }
+          resolve();
+        });
+      });
+    };
+
+    try {
+      // 等待上傳完成
+      await handleUpload();
+      
+      let urlLoraData = '';
+      let loraImageIds = []; // 用於儲存下載的圖片ID
+      let loraBuffer = null; // 用於儲存從URL下載的LoRA檔案
+      let loraFilename = ''; // 用於儲存從URL下載的LoRA檔案名稱
+      let extractedFiles = []; // 用於儲存解壓縮後的檔案
+      
+      // 檢查上傳內容
+      if (!req.files?.loraFile && !req.body.filePath) {
+        return res.status(400).json({ success: false, message: '未提供 LoRA 檔案' });
+      }
+      
+      // 處理從 Civitai 下載 LoRA 檔案 (現有邏輯保持不變)
+      try {
+        if (req.body.filePath) {
+          const filePath = req.body.filePath;
+          const fileurl = new URL(filePath);
+          const loraVersionId = fileurl.searchParams.get('modelVersionId');
+          debug('LoRA 檔案資訊取得中: https://civitai.com/api/v1/model-versions/' + loraVersionId);
+          urlLoraData = await axios.get('https://civitai.com/api/v1/model-versions/' + loraVersionId);
+          debug('LoRA 資訊獲取成功，包含圖片數量:', urlLoraData.data.images?.length || 0);
+          
+          // 檢查是否有 downloadUrl 參數
+          if (urlLoraData.data.downloadUrl) {
+            debug('發現 LoRA 下載連結:', urlLoraData.data.downloadUrl);
+            
+            try {
+              // 下載 LoRA 檔案
+              debug('開始下載 LoRA 檔案...');
+              const loraResponse = await axios({
+                method: 'get',
+                url: urlLoraData.data.downloadUrl,
+                responseType: 'arraybuffer',
+                headers: {
+                  'Accept': 'application/octet-stream'
+                },
+                // 增加超時時間
+                timeout: 1800000 // 30分鐘
+              });
+              
+              // 從 URL 或 Content-Disposition 中提取檔名
+              let filename = '';
+              const contentDisposition = loraResponse.headers['content-disposition'];
+              if (contentDisposition) {
+                const filenameMatch = contentDisposition.match(/filename="(.+)"/);
+                if (filenameMatch) {
+                  filename = filenameMatch[1];
+                }
+              }
+              
+              if (!filename) {
+                const urlObj = new URL(urlLoraData.data.downloadUrl);
+                filename = path.basename(urlObj.pathname) || 'downloaded_lora.safetensors';
+              }
+              
+              loraBuffer = Buffer.from(loraResponse.data);
+              loraFilename = filename;
+              
+              debug(`LoRA 檔案下載成功: ${filename}, 大小: ${(loraBuffer.length / (1024 * 1024)).toFixed(2)} MB`);
+              
+              // 檢查是否為 ZIP 檔案
+              if (loraFilename.toLowerCase().endsWith('.zip')) {
+                debug('檢測到 ZIP 檔案，開始解壓縮...');
+                
+                // 需要先安裝 adm-zip: npm install adm-zip
+                const AdmZip = require('adm-zip');
+                const zip = new AdmZip(loraBuffer);
+                const zipEntries = zip.getEntries();
+                
+                // 過濾出所有 safetensors, pt, ckpt 檔案
+                const validEntries = zipEntries.filter(entry => {
+                  const entryName = entry.entryName.toLowerCase();
+                  return !entry.isDirectory && (
+                    entryName.endsWith('.safetensors') || 
+                    entryName.endsWith('.pt') || 
+                    entryName.endsWith('.ckpt')
+                  );
+                });
+                
+                if (validEntries.length === 0) {
+                  return res.status(400).json({ 
+                    success: false, 
+                    message: 'ZIP 檔案中沒有找到有效的 LoRA 模型檔案' 
+                  });
+                }
+                
+                // 提取所有有效檔案
+                for (const entry of validEntries) {
+                  const entryBuffer = entry.getData();
+                  extractedFiles.push({
+                    filename: entry.entryName,
+                    buffer: entryBuffer
+                  });
+                }
+                
+                debug(`從 ZIP 檔案中提取了 ${extractedFiles.length} 個有效的 LoRA 模型檔案`);
+              }
+            } catch (downloadErr) {
+              debug('LoRA 檔案下載失敗:', downloadErr);
+              return res.status(500).json({ 
+                success: false, 
+                message: 'LoRA 檔案下載失敗: ' + (downloadErr.message || '未知錯誤') 
+              });
+            }
+          } else {
+            debug('API 回傳中沒有找到 downloadUrl 參數');
+          }
+          
+          // 如果存在 LoRA 圖片，下載並儲存到 GridFS
+          if (urlLoraData.data.images && urlLoraData.data.images.length > 0) {
+            debug('開始下載 LoRA 圖片...');
+            
+            // 建立 GridFS bucket 用於圖片檔案
+            const imageBucket = new GridFSBucket(mongoose.connection.db, {
+              bucketName: 'images'
+            });
+            
+            // 最多下載前3張圖片
+            const imagesToDownload = urlLoraData.data.images.slice(0, 3);
+            
+            // 並行下載圖片
+            const downloadPromises = imagesToDownload.map(async (image, index) => {
+              try {
+                debug(`下載第 ${index + 1} 張圖片: ${image.url}`);
+                
+                // 下載圖片
+                const imageResponse = await axios({
+                  method: 'get',
+                  url: image.url,
+                  responseType: 'arraybuffer'
+                });
+                
+                // 從URL中提取檔名
+                const imageUrl = new URL(image.url);
+                const imageFilename = path.basename(imageUrl.pathname) || `lora_image_${index}.jpg`;
+                
+                // 上傳到 GridFS
+                const imageBuffer = Buffer.from(imageResponse.data);
+                const contentType = imageResponse.headers['content-type'] || 'image/jpeg';
+                
+                const imageUploadStream = imageBucket.openUploadStream(imageFilename, {
+                  metadata: {
+                    userId: decoded.id,
+                    contentType: contentType,
+                    uploadDate: new Date(),
+                    fileType: 'loraImage',
+                    loraName: urlLoraData.data.model?.name || 'unknown',
+                    width: image.width || 0,
+                    height: image.height || 0,
+                    nsfw: image.nsfw || false,
+                    source: 'civitai'
+                  }
+                });
+                
+                // 等待上傳完成
+                const imageId = await new Promise((resolve, reject) => {
+                  imageUploadStream.on('finish', () => {
+                    resolve(imageUploadStream.id.toString());
+                  });
+                  imageUploadStream.on('error', reject);
+                  imageUploadStream.end(imageBuffer);
+                });
+                
+                debug(`圖片 ${index + 1} 上傳成功，ID: ${imageId}`);
+                return imageId;
+              } catch (downloadErr) {
+                debug(`圖片 ${index + 1} 下載或上傳失敗:`, downloadErr);
+                return null; // 返回 null 表示此圖片處理失敗
+              }
+            });
+            
+            // 等待所有圖片下載完成
+            const downloadedImageIds = await Promise.all(downloadPromises);
+            loraImageIds = downloadedImageIds.filter(id => id !== null); // 過濾掉失敗的下載
+            
+            debug(`成功下載並上傳 ${loraImageIds.length} 張 LoRA 圖片`);
+          }
+        }
+      } catch (err) {
+        debug('LoRA 資訊或圖片下載錯誤:', err);
+        // 繼續處理，不中斷上傳流程
+      }
+
+      // 處理用戶自行上傳的 LoRA 圖片
+      let userUploadedImageId = '';
+      if (req.files?.loraImage && req.files.loraImage.length > 0) {
+        try {
+          // 建立 GridFS bucket 用於圖片檔案
+          const imageBucket = new GridFSBucket(mongoose.connection.db, {
+            bucketName: 'images'
+          });
+          
+          const imageFile = req.files.loraImage[0];
+          
+          // 上傳圖片
+          const imageUploadStream = imageBucket.openUploadStream(imageFile.originalname, {
+            metadata: {
+              userId: decoded.id,
+              contentType: imageFile.mimetype,
+              uploadDate: new Date(),
+              fileType: 'loraImage',
+              loraName: req.body.loraName || urlLoraData?.data?.model?.name || 'unknown',
+              source: 'userUpload'
+            }
+          });
+          
+          // 等待圖片上傳完成
+          userUploadedImageId = await new Promise((resolve, reject) => {
+            imageUploadStream.on('finish', () => {
+              resolve(imageUploadStream.id.toString());
+            });
+            imageUploadStream.on('error', reject);
+            imageUploadStream.end(imageFile.buffer);
+          });
+          
+          debug(`用戶上傳的 LoRA 圖片上傳成功，ID: ${userUploadedImageId}`);
+          
+          // 將用戶上傳的圖片ID放在陣列最前面，作為主要預覽圖
+          if (userUploadedImageId) {
+            loraImageIds.unshift(userUploadedImageId);
+          }
+        } catch (imageErr) {
+          debug('用戶上傳的 LoRA 圖片處理錯誤:', imageErr);
+        }
+      }
+
+      try {
+        // 建立 GridFS bucket 用於 LoRA 檔案
+        const bucket = new GridFSBucket(mongoose.connection.db, {
+          bucketName: 'loras'
+        });
+        
+        // 準備上傳的檔案清單
+        let loraFiles = [];
+        
+        if (extractedFiles.length > 0) {
+          // 使用從 ZIP 解壓縮的檔案
+          loraFiles = extractedFiles;
+        } else if (loraBuffer) {
+          // 使用從 URL 下載的單一檔案
+          loraFiles = [{
+            filename: loraFilename,
+            buffer: loraBuffer
+          }];
+        } else if (req.files?.loraFile?.[0]) {
+          // 使用用戶上傳的檔案
+          const loraFile = req.files.loraFile[0];
+          loraFiles = [{
+            filename: loraFile.originalname,
+            buffer: loraFile.buffer
+          }];
+        } else {
+          return res.status(400).json({ success: false, message: '未提供有效的 LoRA 檔案' });
+        }
+        
+        // 創建存儲 LoRA 檔案的本地目錄
+        const loraDir = path.join(__dirname, '../stable-diffusion/loras');
+        if (!fs.existsSync(loraDir)) {
+          fs.mkdirSync(loraDir, { recursive: true });
+        }
+        
+        // 用於儲存上傳的檔案資訊
+        const uploadedLoras = [];
+        
+        // 處理每個檔案
+        for (const loraFile of loraFiles) {
+          const originalFilename = loraFile.filename;
+          const baseFilename = path.basename(originalFilename, path.extname(originalFilename));
+          const fileExtension = path.extname(originalFilename);
+          
+          // 上傳新檔案到 GridFS
+          const uploadStream = bucket.openUploadStream(originalFilename, {
+            metadata: {
+              userId: decoded.id,
+              contentType: 'application/octet-stream',
+              uploadDate: new Date(),
+              fileType: 'lora',
+              baseFilename: baseFilename,
+              description: req.body.description || urlLoraData?.data?.description || '',
+              loraImages: loraImageIds, // 儲存所有圖片ID陣列
+              loraMainImage: loraImageIds.length > 0 ? loraImageIds[0] : "unknown", // 第一張圖作為主圖
+              fileSize: loraFile.buffer.length,
+              prettySize: `${(loraFile.buffer.length / (1024 * 1024)).toFixed(2)} MB`,
+              source: loraBuffer ? 'civitai_download' : 'user_upload',
+              isExtractedFromZip: extractedFiles.length > 0
+            }
+          });
+          
+          // 等待上傳完成
+          const fileId = await new Promise((resolve, reject) => {
+            uploadStream.on('finish', () => {
+              resolve(uploadStream.id.toString());
+            });
+            uploadStream.on('error', (err) => {
+              debug(`GridFS 上傳錯誤: ${err.message}`);
+              reject(err);
+            });
+            uploadStream.end(loraFile.buffer);
+          });
+          
+          // 儲存到本地 loras 目錄
+          const localPath = path.join(loraDir, `${baseFilename}${fileExtension}`);
+          fs.writeFileSync(localPath, loraFile.buffer);
+          debug(`LoRA 檔案已儲存至本地: ${localPath}`);
+          
+          // 記錄上傳的檔案資訊
+          uploadedLoras.push({
+            fileId: fileId,
+            filename: baseFilename,
+            originalFilename: originalFilename,
+            size: loraFile.buffer.length,
+            prettySize: `${(loraFile.buffer.length / (1024 * 1024)).toFixed(2)} MB`
+          });
+        }
+        
+        // 構建回應
+        const response = {
+          success: true,
+          message: `已成功上傳 ${uploadedLoras.length} 個 LoRA 檔案`,
+          totalFiles: uploadedLoras.length,
+          loras: uploadedLoras
+        };
+        
+        // 如果有圖片，添加圖片資訊
+        if (loraImageIds.length > 0) {
+          response.loraImageIds = loraImageIds;
+          response.loraMainImageId = loraImageIds[0];
+          response.loraMainImageUrl = `${API_BASE_URL}/api/images/${loraImageIds[0]}`;
+          response.totalImages = loraImageIds.length;
+        }
+        
+        res.json(response);
+      } catch (gridfsErr) {
+        debug('GridFS error (LoRA):', gridfsErr);
+        res.status(500).json({ success: false, message: 'LoRA 檔案儲存失敗' });
+      }
+    } catch (multerErr) {
+      // 處理 multer 上傳錯誤
+      debug('Multer error (LoRA):', multerErr);
+      return res.status(400).json({ 
+        success: false, 
+        message: `檔案上傳失敗: ${multerErr.message}` 
+      });
+    }
+  } catch (err) {
+    debug('General error (LoRA):', err);
+    res.status(500).json({ success: false, message: 'LoRA 檔案上傳失敗' });
+  }
+};
+
+// 上傳模型檔案
+exports.uploadModel = async (req, res) => {
+  try {
+    // 驗證用戶是否已登入
+    if (!req.headers.authorization?.startsWith('Bearer ')) {
+      return res.status(401).json({ success: false, message: '請先登入' });
+    }
+
+    const token = req.headers.authorization.split(' ')[1];
+    const decoded = jwt.verify(token, JWT_SECRET);
+        
+    // 使用 Promise 包裝 multer 上傳過程，以便更好地處理錯誤
+    const handleUpload = () => {
+      return new Promise((resolve, reject) => {
+        uploadModel(req, res, function(err) {
+          if (err) {
+            debug('Multer error (Model):', err);
+            reject(err);
+            return;
+          }
+          resolve();
+        });
+      });
+    };
+    
+    try {
+      // 等待上傳完成
+      await handleUpload();
+    
+      let urlmodeldata = '';
+      let modelImageIds = []; // 用於儲存下載的圖片ID
+      let modelBuffer = null; // 用於儲存從URL下載的模型檔案
+      let modelFilename = ''; // 用於儲存從URL下載的模型檔案名稱
+      let extractedFiles = []; // 用於儲存解壓縮後的檔案
+      
+      // 檢查上傳內容
+      if (!req.files?.modelFile && !req.body.filePath) {
+        return res.status(400).json({ success: false, message: '未提供模型檔案' });
+      }
+      
+      try {
+        // 處理從 Civitai 下載的模型檔案 (現有邏輯保持不變)
+        if (req.body.filePath) {
+          const filePath = req.body.filePath;
+          const fileurl = new URL(filePath);
+          const modelVersionId = fileurl.searchParams.get('modelVersionId');
+          debug('模型檔案資訊取得中: https://civitai.com/api/v1/model-versions/' + modelVersionId);
+          urlmodeldata = await axios.get('https://civitai.com/api/v1/model-versions/' + modelVersionId);
+          debug('模型資訊獲取成功，包含圖片數量:', urlmodeldata.data.images?.length || 0);
+          
+          // 檢查是否有 downloadUrl 參數
+          if (urlmodeldata.data.downloadUrl) {
+            debug('發現模型下載連結:', urlmodeldata.data.downloadUrl);
+            
+            try {
+              // 下載模型檔案
+              debug('開始下載模型檔案...');
+              const modelResponse = await axios({
+                method: 'get',
+                url: urlmodeldata.data.downloadUrl,
+                responseType: 'arraybuffer',
+                headers: {
+                  'Accept': 'application/octet-stream'
+                },
+                // 增加超時時間，因為模型檔案可能很大
+                timeout: 3600000 // 1小時
+              });
+              
+              // 從 URL 或 Content-Disposition 中提取檔名
+              let filename = '';
+              const contentDisposition = modelResponse.headers['content-disposition'];
+              if (contentDisposition) {
+                const filenameMatch = contentDisposition.match(/filename="(.+)"/);
+                if (filenameMatch) {
+                  filename = filenameMatch[1];
+                }
+              }
+              
+              if (!filename) {
+                const urlObj = new URL(urlmodeldata.data.downloadUrl);
+                filename = path.basename(urlObj.pathname) || 'downloaded_model.safetensors';
+                       }
+              
+              modelBuffer = Buffer.from(modelResponse.data);
+              modelFilename = filename;
+              
+              debug(`模型檔案下載成功: ${filename}, 大小: ${(modelBuffer.length / (1024 * 1024 * 1024)).toFixed(2)} GB`);
+              
+              // 檢查是否為 ZIP 檔案
+              if (modelFilename.toLowerCase().endsWith('.zip')) {
+                debug('檢測到 ZIP 檔案，開始解壓縮...');
+                
+                // 需要先安裝 adm-zip: npm install adm-zip
+                const AdmZip = require('adm-zip');
+                const zip = new AdmZip(modelBuffer);
+                const zipEntries = zip.getEntries();
+                
+                // 過濾出所有 safetensors, pt, ckpt 檔案
+                const validEntries = zipEntries.filter(entry => {
+                  const entryName = entry.entryName.toLowerCase();
+                  return !entry.isDirectory && (
+                    entryName.endsWith('.safetensors') || 
+                    entryName.endsWith('.pt') || 
+                    entryName.endsWith('.ckpt')
+                  );
+                });
+                
+                if (validEntries.length === 0) {
+                  return res.status(400).json({ 
+                    success: false, 
+                    message: 'ZIP 檔案中沒有找到有效的模型檔案' 
+                  });
+                }
+                
+                // 提取所有有效檔案
+                for (const entry of validEntries) {
+                  const entryBuffer = entry.getData();
+                  extractedFiles.push({
+                    filename: entry.entryName,
+                    buffer: entryBuffer
+                  });
+                }
+                
+                debug(`從 ZIP 檔案中提取了 ${extractedFiles.length} 個有效的模型檔案`);
+              }
+            } catch (downloadErr) {
+              debug('模型檔案下載失敗:', downloadErr);
+              return res.status(500).json({ 
+                success: false, 
+                message: '模型檔案下載失敗: ' + (downloadErr.message || '未知錯誤') 
+              });
+            }
+          } else {
+            debug('API 回傳中沒有找到 downloadUrl 參數');
+          }
+          
+          // 如果存在模型圖片，下載並儲存到 GridFS
+          if (urlmodeldata.data.images && urlmodeldata.data.images.length > 0) {
+            debug('開始下載模型圖片...');
+            
+            // 建立 GridFS bucket 用於圖片檔案
+            const imageBucket = new GridFSBucket(mongoose.connection.db, {
+              bucketName: 'images'
+            });
+            
+            // 最多下載前5張圖片
+            const imagesToDownload = urlmodeldata.data.images.slice(0, 5);
+            
+            // 並行下載圖片
+            const downloadPromises = imagesToDownload.map(async (image, index) => {
+              try {
+                debug(`下載第 ${index + 1} 張圖片: ${image.url}`);
+                
+                // 下載圖片
+                const imageResponse = await axios({
+                  method: 'get',
+                  url: image.url,
+                  responseType: 'arraybuffer'
+                });
+                
+                // 從URL中提取檔名
+                const imageUrl = new URL(image.url);
+                const imageFilename = path.basename(imageUrl.pathname) || `model_image_${index}.jpg`;
+                
+                // 上傳到 GridFS
+                const imageBuffer = Buffer.from(imageResponse.data);
+                const contentType = imageResponse.headers['content-type'] || 'image/jpeg';
+                
+                const imageUploadStream = imageBucket.openUploadStream(imageFilename, {
+                  metadata: {
+                    userId: decoded.id,
+                    contentType: contentType,
+                    uploadDate: new Date(),
+                    fileType: 'modelImage',
+                    modelName: urlmodeldata.data.model?.name || 'unknown',
+                    width: image.width || 0,
+                    height: image.height || 0,
+                    nsfw: image.nsfw || false,
+                    source: 'civitai'
+                  }
+                });
+                
+                // 等待上傳完成
+                const imageId = await new Promise((resolve, reject) => {
+                  imageUploadStream.on('finish', () => {
+                    resolve(imageUploadStream.id.toString());
+                  });
+                  imageUploadStream.on('error', reject);
+                  imageUploadStream.end(imageBuffer);
+                });
+                
+                debug(`圖片 ${index + 1} 上傳成功，ID: ${imageId}`);
+                return imageId;
+              } catch (downloadErr) {
+                debug(`圖片 ${index + 1} 下載或上傳失敗:`, downloadErr);
+                return null; // 返回 null 表示此圖片處理失敗
+              }
+            });
+            
+            // 等待所有圖片下載完成
+            const downloadedImageIds = await Promise.all(downloadPromises);
+            modelImageIds = downloadedImageIds.filter(id => id !== null); // 過濾掉失敗的下載
+            
+            debug(`成功下載並上傳 ${modelImageIds.length} 張模型圖片`);
+          }
+        }
+      } catch (err) {
+        debug('模型資訊或圖片下載錯誤:', err);
+        // 繼續處理，不中斷上傳流程
+      }
+
+      // 處理用戶自行上傳的模型圖片
+      let userUploadedImageId = '';
+      if (req.files?.modelImage && req.files.modelImage.length > 0) {
+        try {
+          // 建立 GridFS bucket 用於圖片檔案
+          const imageBucket = new GridFSBucket(mongoose.connection.db, {
+            bucketName: 'images'
+          });
+          
+          const imageFile = req.files.modelImage[0];
+          
+          // 上傳圖片
+          const imageUploadStream = imageBucket.openUploadStream(imageFile.originalname, {
+            metadata: {
+              userId: decoded.id,
+              contentType: imageFile.mimetype,
+              uploadDate: new Date(),
+              fileType: 'modelImage',
+              modelName: req.body.modelName || urlmodeldata?.data?.model?.name || 'unknown',
+              source: 'userUpload'
+            }
+          });
+          
+          // 等待圖片上傳完成
+          userUploadedImageId = await new Promise((resolve, reject) => {
+            imageUploadStream.on('finish', () => {
+              resolve(imageUploadStream.id.toString());
+            });
+            imageUploadStream.on('error', reject);
+            imageUploadStream.end(imageFile.buffer);
+          });
+          
+          debug(`用戶上傳的模型圖片上傳成功，ID: ${userUploadedImageId}`);
+          
+          // 將用戶上傳的圖片ID放在陣列最前面，作為主要預覽圖
+          if (userUploadedImageId) {
+            modelImageIds.unshift(userUploadedImageId);
+          }
+        } catch (imageErr) {
+          debug('用戶上傳的模型圖片處理錯誤:', imageErr);
+          // 繼續處理，不因圖片上傳錯誤而中斷整個流程
+        }
+      }
+
+      try {
+        // 建立 GridFS bucket 用於模型檔案
+        const bucket = new GridFSBucket(mongoose.connection.db, {
+          bucketName: 'models'
+        });
+
+        // 確定要使用的模型資料 - 優先使用從 URL 下載的檔案，其次是用戶上傳的檔案
+        let modelData, originalFilename, modelSize;
+        
+        if (modelBuffer) {
+          // 使用從 URL 下載的模型檔案
+          modelData = modelBuffer;
+          originalFilename = modelFilename;
+          modelSize = modelBuffer.length;
+          debug('使用從 URL 下載的模型檔案');
+        } else if (req.files?.modelFile?.[0]) {
+          // 使用用戶上傳的模型檔案
+          const modelFile = req.files.modelFile[0];
+          modelData = modelFile.buffer;
+          originalFilename = modelFile.originalname;
+          modelSize = modelFile.size;
+          debug('使用用戶上傳的模型檔案');
+        } else {
+          return res.status(400).json({ success: false, message: '未提供有效的模型檔案' });
+        }
+        
+        const baseFilename = path.basename(originalFilename, path.extname(originalFilename)) || urlmodeldata?.data?.files?.name || 'unknown';
+        const modelType = req.body.modelType || urlmodeldata?.data?.baseModel || 'unknown'; // 例如: sd15, sd21, sdxl, sd35...
+        const modelName = req.body.modelName || urlmodeldata?.data?.model?.name || 'unknown';
+        const modelURL = req.body.filePath || 'unknown';
+        const modelVersionId = urlmodeldata?.data?.id || 'unknown';
+        
+        // 上傳新檔案
+        const uploadStream = bucket.openUploadStream(originalFilename, {
+          metadata: {
+            userId: decoded.id,
+            contentType: 'application/octet-stream',
+            uploadDate: new Date(),
+            fileType: 'model',
+            modelType: modelType,
+            modelName: modelName,
+            baseFilename: baseFilename,
+            description: req.body.description || urlmodeldata?.data?.description || '',
+            modelImages: modelImageIds, // 儲存所有圖片ID陣列
+            modelMainImage: modelImageIds.length > 0 ? modelImageIds[0] : "unknown", // 第一張圖作為主圖
+            fileSize: modelSize,
+            prettySize: `${(modelSize / (1024 * 1024 * 1024)).toFixed(2)} GB`,
+            modelVersionId: modelVersionId,
+            modelurl:  modelURL,
+            source: modelBuffer ? 'civitai_download' : 'user_upload'
+          }
+        });
+
+        // 等待上傳完成
+        const fileId = await new Promise((resolve, reject) => {
+          uploadStream.on('finish', () => {
+            resolve(uploadStream.id.toString());
+          });
+          uploadStream.on('error', (err) => {
+            debug(`GridFS 模型上傳錯誤: ${err.message}`);
+            reject(err);
+          });
+          uploadStream.end(modelData);
+        });
+
+        // 儲存到本地 models 目錄
+        const modelDir = path.join(__dirname, '../stable-diffusion/models');
+        if (!fs.existsSync(modelDir)) {
+          fs.mkdirSync(modelDir, { recursive: true });
+        }
+        
+        const localPath = path.join(modelDir, `${baseFilename}${path.extname(originalFilename)}`);
+        
+        // 使用 try-catch 處理檔案寫入錯誤，避免因為本地寫入失敗而影響整個上傳流程
+        try {
+          fs.writeFileSync(localPath, modelData);
+          debug(`模型檔案已儲存至本地: ${localPath}`);
+        } catch (writeErr) {
+          debug(`模型檔案本地儲存失敗，但仍繼續處理: ${writeErr.message}`);
+        }
+
+        // 構建回應，包含模型圖片資訊
+        const response = {
+          success: true,
+          message: '模型檔案上傳成功',
+          fileId: fileId,
+          filename: baseFilename,
+          originalFilename: originalFilename,
+          modelType: modelType,
+          size: modelSize,
+          prettySize: `${(modelSize / (1024 * 1024 * 1024)).toFixed(2)} GB`,
+          source: modelBuffer ? 'civitai_download' : 'user_upload'
+        };
+        
+        // 如果有圖片，添加圖片資訊
+        if (modelImageIds.length > 0) {
+          response.modelImageIds = modelImageIds;
+          response.modelMainImageId = modelImageIds[0];
+          response.modelMainImageUrl = `${API_BASE_URL}/api/images/${modelImageIds[0]}`;
+          response.totalImages = modelImageIds.length;
+        }
+
+        res.json(response);
+
+      } catch (gridfsErr) {
+        debug('GridFS error (Model):', gridfsErr);
+        return res.status(500).json({ success: false, message: '模型檔案儲存失敗: ' + gridfsErr.message });
+      }
+    } catch (multerErr) {
+      // 處理 multer 上傳錯誤
+      debug('Multer error (Model):', multerErr);
+      return res.status(400).json({ 
+        success: false, 
+        message: `檔案上傳失敗: ${multerErr.message}` 
+      });
+    }
+  } catch (err) {
+    debug('General error (Model):', err);
+    res.status(500).json({ success: false, message: '模型檔案上傳失敗: ' + err.message });
+  }
+};
+
+// 獲取 LoRA 檔案列表
+exports.getLoraList = async (req, res) => {
+  try {
+    // 驗證用戶是否已登入
+    if (!req.headers.authorization?.startsWith('Bearer ')) {
+      return res.status(401).json({ success: false, message: '請先登入' });
+    }
+
+    const token = req.headers.authorization.split(' ')[1];
+    const decoded = jwt.verify(token, JWT_SECRET);
+
+    // 查詢該用戶的所有 LoRA 檔案
+    const loras = await mongoose.connection.db
+      .collection('loras.files')
+      .find({ 'metadata.userId': decoded.id })
+      .sort({ uploadDate: -1 })
+      .toArray();
+
+    // 格式化回傳資料，保留所有 metadata 資訊
+    const formattedLoras = loras.map(lora => {
+      const baseInfo = {
+        fileId: lora._id.toString(),
+        filename: lora.metadata.baseFilename,
+        originalFilename: lora.filename,
+        description: lora.metadata.description || '',
+        uploadDate: lora.uploadDate,
+        size: lora.length,
+        prettySize: lora.metadata.prettySize || `${(lora.length / (1024 * 1024)).toFixed(2)} MB`
+      };
+      
+      // 添加圖片資訊
+      if (lora.metadata.loraImages && lora.metadata.loraImages.length > 0) {
+        baseInfo.loraImages = lora.metadata.loraImages;
+        baseInfo.loraMainImage = lora.metadata.loraMainImage || lora.metadata.loraImages[0];
+        baseInfo.loraMainImageUrl = `${API_BASE_URL}/api/images/${baseInfo.loraMainImage}`;
+        baseInfo.totalImages = lora.metadata.loraImages.length;
+      }
+      
+      // 添加其他所有 metadata 資訊
+      return {
+        ...baseInfo,
+        source: lora.metadata.source || 'user_upload',
+        isExtractedFromZip: lora.metadata.isExtractedFromZip || false,
+        // 合併其他可能存在的 metadata 欄位
+        ...Object.fromEntries(
+          Object.entries(lora.metadata).filter(([key]) => 
+            !['userId', 'contentType', 'uploadDate', 'baseFilename', 'prettySize', 'fileSize'].includes(key)
+          )
+        )
+      };
+    });
+
+    res.json({
+      success: true,
+      loras: formattedLoras
+    });
+  } catch (err) {
+    debug('Error getting LoRA list:', err);
+    res.status(500).json({ success: false, message: '取得 LoRA 檔案列表失敗' });
+  }
+};
+
+// 獲取模型檔案列表
+exports.getModelList = async (req, res) => {
+  try {
+    // 驗證用戶是否已登入
+    if (!req.headers.authorization?.startsWith('Bearer ')) {
+      return res.status(401).json({ success: false, message: '請先登入' });
+    }
+
+    const token = req.headers.authorization.split(' ')[1];
+    const decoded = jwt.verify(token, JWT_SECRET);
+
+    // 查詢該用戶的所有模型檔案
+    const models = await mongoose.connection.db
+      .collection('models.files')
+      .find({ 'metadata.userId': decoded.id })
+      .sort({ uploadDate: -1 })
+      .toArray();
+
+    // 格式化回傳資料，保留所有 metadata 資訊
+    const formattedModels = models.map(model => {
+      const baseInfo = {
+        fileId: model._id.toString(),
+        filename: model.metadata.baseFilename,
+        originalFilename: model.filename,
+        modelType: model.metadata.modelType || 'unknown',
+        modelName: model.metadata.modelName || 'unknown',
+        description: model.metadata.description || '',
+        uploadDate: model.uploadDate,
+        size: model.length,
+        prettySize: model.metadata.prettySize || `${(model.length / (1024 * 1024 * 1024)).toFixed(2)} GB`
+      };
+      
+      // 添加圖片資訊
+      if (model.metadata.modelImages && model.metadata.modelImages.length > 0) {
+        baseInfo.modelImages = model.metadata.modelImages;
+        baseInfo.modelMainImage = model.metadata.modelMainImage || model.metadata.modelImages[0];
+        baseInfo.modelMainImageUrl = `${API_BASE_URL}/api/images/${baseInfo.modelMainImage}`;
+        baseInfo.totalImages = model.metadata.modelImages.length;
+      }
+      
+      // 添加其他所有 metadata 資訊
+      return {
+        ...baseInfo,
+        source: model.metadata.source || 'user_upload',
+        modelVersionId: model.metadata.modelVersionId || 'unknown',
+        modelurl: model.metadata.modelurl || 'unknown',
+        // 合併其他可能存在的 metadata 欄位
+        ...Object.fromEntries(
+          Object.entries(model.metadata).filter(([key]) => 
+            !['userId', 'contentType', 'uploadDate', 'baseFilename', 'prettySize', 'fileSize', 'modelType', 'modelName'].includes(key)
+          )
+        )
+      };
+    });
+
+    res.json({
+      success: true,
+      models: formattedModels
+    });
+  } catch (err) {
+    debug('Error getting model list:', err);
+    res.status(500).json({ success: false, message: '取得模型檔案列表失敗' });
+  }
+};

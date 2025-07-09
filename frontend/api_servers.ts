@@ -469,3 +469,74 @@ export const changePassword = async (oldPassword: string, newPassword: string): 
     newPassword
   });
 };
+
+// 添加獲取模型列表的 API 函數
+export const getModelList = async (): Promise<{
+  success: boolean;
+  models: Array<{
+    fileId: string;
+    filename: string;
+    originalFilename: string;
+    modelType: string;
+    description: string;
+    uploadDate: string;
+    size: number;
+    prettySize: string;
+  }>;
+}> => {
+  return apiGet('/api/models');
+};
+
+// 添加獲取 LoRA 列表的 API 函數
+export const getLoraList = async (): Promise<{
+  success: boolean;
+  loras: Array<{
+    fileId: string;
+    filename: string;
+    originalFilename: string;
+    description: string;
+    uploadDate: string;
+    size: number;
+    prettySize: string;
+  }>;
+}> => {
+  return apiGet('/api/loras');
+};
+
+export const apiPostFormData = async (endpoint: string, formData: FormData): Promise<any> => {
+  const serverList = getBaseServers();
+  const token = getAuthToken();
+  let lastError: string | null = null;
+
+  for (const base of serverList) {
+    if (base.startsWith('ws')) continue; // 跳過 WebSocket URL
+  
+    const url = `${base}${endpoint}`;
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        lastError = errorData?.message || `伺服器錯誤：${response.status}`;
+        console.error(`上傳失敗：${lastError}`);
+        continue;
+      }
+
+      const data = await response.json();
+      return data;
+
+    } catch (err: any) {
+      lastError = err.message;
+      console.error(`上傳錯誤：${lastError}`);
+      continue;
+    }
+  }
+
+  throw new Error(lastError || '檔案上傳失敗');
+};

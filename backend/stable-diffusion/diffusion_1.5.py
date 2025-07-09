@@ -425,8 +425,75 @@ def convert_a1111_lora(pipe, lora_path, scale=0.75):
         print(f"[ERROR] A1111 LoRA 轉換失敗: {str(e)}")
         return False
 
+# 新增函數：從 GridFS 獲取檔案並保存到臨時目錄
+def get_file_from_gridfs(file_id, collection_name, temp_dir=None):
+    try:
+        if temp_dir is None:
+            temp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp_files")
+        
+        os.makedirs(temp_dir, exist_ok=True)
+        
+        print(f"[INFO] 從 GridFS {collection_name} 獲取檔案: {file_id}")
+        
+        # 連接 MongoDB
+        mongo_uri = os.getenv("vtadb", "mongodb://localhost:27017")
+        client = MongoClient(mongo_uri)
+        db = client.get_database(os.getenv("vtadb", "vtadb"))
+        
+        # 選擇相應的 GridFS 集合
+        fs = gridfs.GridFS(db, collection=collection_name)
+        
+        # 嘗試通過文件名找到文件
+        grid_file = None
+        
+        # 首先嘗試使用 ObjectId (如果提供的是ID)
+        try:
+            from bson.objectid import ObjectId
+            if ObjectId.is_valid(file_id):
+                grid_file = fs.find_one({"_id": ObjectId(file_id)})
+                if grid_file:
+                    print(f"[INFO] 使用 ObjectId 成功找到檔案: {file_id}")
+            
+            # 如果 ObjectId 查詢失敗，嘗試使用檔案名稱查詢
+            if not grid_file:
+                grid_file = fs.find_one({"filename": file_id})
+                if grid_file:
+                    print(f"[INFO] 使用檔案名稱成功找到檔案: {file_id}")
+                
+        except Exception as e:
+            print(f"[WARN] 檔案查詢失敗: {e}")
+        
+        # 如果仍然找不到，返回 None
+        if not grid_file:
+            print(f"[ERROR] 在 {collection_name} 中找不到檔案: {file_id}")
+            return None
+        
+        # 保存到臨時文件
+        actual_filename = grid_file.filename
+        
+        # 使用安全的文件名
+        safe_filename = ''.join(c for c in actual_filename if c.isalnum() or c in '._- ')
+        
+        # 建立臨時文件路徑
+        temp_file_path = os.path.join(temp_dir, safe_filename)
+        
+        # 寫入檔案
+        with open(temp_file_path, 'wb') as f:
+            f.write(grid_file.read())
+        
+        print(f"[INFO] 檔案已保存到臨時位置: {temp_file_path}")
+        
+        # 關閉 MongoDB 連接
+        client.close()
+        
+        return temp_file_path
+    except Exception as e:
+        print(f"[ERROR] 從 GridFS 獲取檔案失敗: {e}")
+        return None
+
+# 修改 load_model 函數以支持 GridFS
 def load_model(model_path):
-    """智能載入不同來源的模型"""
+    """智能載入不同來源的模型，包括 GridFS 儲存的模型"""
     print(f"[INFO] 嘗試載入模型: {model_path}")
     
     # 處理預設模型名稱
@@ -437,37 +504,70 @@ def load_model(model_path):
         "sdxl": "stabilityai/stable-diffusion-xl-base-1.0",
     }
     
+    # 處理空字串模型參數 - 改用預設模型
+    if model_path == "":
+        model_path = "default"
+        print(f"[INFO] 收到空模型參數，使用預設模型")
+    
     if model_path in model_name_map:
         model_path = model_name_map[model_path]
         print(f"[INFO] 使用預設模型: {model_path}")
+        
+        # 預設模型直接從 Hugging Face 加載，不需要 GridFS
+        is_sdxl = "xl" in model_path.lower() or model_path == "sdxl" or "stabilityai/stable-diffusion-xl" in model_path
+        
+        if is_sdxl:
+            try:
+                return StableDiffusionXLPipeline.from_pretrained(
+                    model_path,
+                    torch_dtype=torch.float16,
+                ).to("cuda")
+            except Exception as e:
+                print(f"[ERROR] 載入 SDXL 模型失敗: {e}")
+                # 回退到 SD 1.5
+                print(f"[INFO] 回退到 SD 1.5 模型")
+                return StableDiffusionPipeline.from_pretrained(
+                    "runwayml/stable-diffusion-v1-5",
+                    torch_dtype=torch.float16,
+                ).to("cuda")
+        else:
+            return StableDiffusionPipeline.from_pretrained(
+                model_path,
+                torch_dtype=torch.float16,
+            ).to("cuda")
     
     # 檢查是否為 SDXL 模型
-    is_sdxl = "xl" in model_path.lower() or model_path == "sdxl" or "stabilityai/stable-diffusion-xl" in model_path
+    is_sdxl = "xl" in model_path.lower() or "stabilityai/stable-diffusion-xl" in model_path
     
-    # 檢查是否為WebUI風格的相對路徑
+    # 檢查是否為WebUI風格的相對路徑（無路徑分隔符）
     if not os.path.isabs(model_path) and "/" not in model_path and "\\" not in model_path:
-        # 嘗試在以下位置尋找模型
-        possible_paths = [
-            # 直接在loras目錄查找
-            os.path.join(os.path.dirname(__file__), "loras", f"{model_path}.safetensors"),
-            os.path.join(os.path.dirname(__file__), "loras", f"{model_path}.ckpt"),
-            
-            # 查找WebUI風格的models/Stable-diffusion目錄
-            os.path.join(os.path.dirname(__file__), "models", "Stable-diffusion", f"{model_path}.safetensors"),
-            os.path.join(os.path.dirname(__file__), "models", "Stable-diffusion", f"{model_path}.ckpt"),
-            
-            # 查找其他可能的目錄
-            os.path.join(os.path.dirname(__file__), "models", f"{model_path}.safetensors"),
-            os.path.join(os.path.dirname(__file__), "models", f"{model_path}.ckpt"),
-            os.path.join(os.path.dirname(__file__), "models", model_path),
-            os.path.join(os.path.dirname(__file__), model_path)
-        ]
+        print(f"[INFO] 檢測到 WebUI 風格模型名稱: {model_path}")
         
-        for path in possible_paths:
-            if os.path.exists(path):
-                model_path = path
-                print(f"[INFO] 找到模型文件: {model_path}")
-                break
+        # 從 GridFS 獲取自定義模型
+        temp_models_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp_models")
+        custom_model_path = get_file_from_gridfs(model_path, "models", temp_models_dir)
+        
+        # 如果沒有找到，嘗試添加 .safetensors 後綴
+        if not custom_model_path and not model_path.endswith('.safetensors'):
+            custom_model_path = get_file_from_gridfs(f"{model_path}.safetensors", "models", temp_models_dir)
+        
+        # 如果沒有找到，嘗試添加 .ckpt 後綴
+        if not custom_model_path and not model_path.endswith('.ckpt'):
+            custom_model_path = get_file_from_gridfs(f"{model_path}.ckpt", "models", temp_models_dir)
+        
+        # 如果從 GridFS 獲取到模型，則使用它
+        if custom_model_path:
+            print(f"[INFO] 從 GridFS 成功獲取模型: {custom_model_path}")
+            model_path = custom_model_path
+        else:
+            print(f"[WARN] 在 GridFS 中找不到模型: {model_path}")
+            print(f"[INFO] 回退到默認模型")
+            
+            # 回退到默認模型
+            return StableDiffusionPipeline.from_pretrained(
+                "runwayml/stable-diffusion-v1-5",
+                torch_dtype=torch.float16,
+            ).to("cuda")
     
     # 規範化路徑 - 將反斜線轉為正斜線
     model_path = os.path.normpath(model_path).replace('\\', '/')
@@ -584,7 +684,15 @@ def main():
         sys.exit(1)
 
     prompt, userid, chat_id = sys.argv[1], sys.argv[2], sys.argv[3]
-    lora_name = sys.argv[4] if len(sys.argv) > 4 else None
+    
+    # 更嚴謹地處理 LoRA 參數
+    lora_name = None
+    if len(sys.argv) > 4:
+        lora_name = sys.argv[4]
+        # 將空字串明確轉換為 None
+        if lora_name == "":
+            lora_name = None
+            print(f"[INFO] 收到空 LoRA 參數，不加載 LoRA")
     
     # 添加新參數: 生成圖片數量
     num_images = 1  # 默認生成一張
@@ -598,28 +706,39 @@ def main():
             num_images = 1
     
     # 新增參數: 指定要使用的模型
-    model_arg = sys.argv[6] if len(sys.argv) > 6 else "default"
+    model_arg = "default"
+    if len(sys.argv) > 6:
+        model_arg = sys.argv[6]
+        # 處理空字串模型參數 - 改用預設模型
+        if model_arg == "":
+            model_arg = "default"
+            print(f"[INFO] 收到空模型參數，使用預設模型")
     
     print(f"[INFO] 將生成 {num_images} 張圖片，指定模型: {model_arg}")
+    
+    # 記錄自定義模型路徑，用於後續清理和元數據
+    custom_model_path = None
+    if model_arg and not model_arg.startswith(("default", "sd15", "sd21", "sdxl")):
+        # 這裡將處理自定義模型加載，路徑將在 load_model 內部處理
+        custom_model_path = model_arg
     
     # 載入模型
     pipe = load_model(model_arg)
 
-    # 2. 如果有指定 LoRA
-    if lora_name:
-        # 檢查 lora_name 是否已包含 .safetensors 副檔名
-        if lora_name.endswith('.safetensors'):
-            base_name = lora_name[:-12]  # 移除 .safetensors
-            weight_file = os.path.join("loras", lora_name)
-        else:
-            base_name = lora_name
-            weight_file = os.path.join("loras", f"{lora_name}.safetensors")
+    # 2. 如果有指定 LoRA 且不是 None (不是空字串)
+    weight_file = None
+    if lora_name is not None:
+        # 從 GridFS 獲取 LoRA 檔案
+        lora_temp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp_loras")
+        weight_file = get_file_from_gridfs(lora_name, "loras", lora_temp_dir)
         
-        lora_dir = os.path.abspath(os.path.join("loras", base_name))
+        if not weight_file:
+            # 嘗試添加 .safetensors 後綴再次查找
+            if not lora_name.endswith('.safetensors'):
+                weight_file = get_file_from_gridfs(f"{lora_name}.safetensors", "loras", lora_temp_dir)
         
-        # 檢查文件是否存在
-        if not os.path.exists(weight_file):
-            print(json.dumps({"error": f"LoRA 文件不存在: {weight_file}"}))
+        if not weight_file:
+            print(json.dumps({"error": f"LoRA 文件不存在於 GridFS: {lora_name}"}))
             sys.exit(1)
             
         try:
@@ -664,7 +783,7 @@ def main():
         images = pipe(
             prompt, 
             num_inference_steps=40, 
-            guidance_scale=4.5,
+            guidance_scale=7.5,
             num_images_per_prompt=num_images
         ).images
         
@@ -690,7 +809,7 @@ def main():
                         "contentType": "image/png",
                         "uploadDate": datetime.datetime.utcnow(),
                         "chat_id": chat_id,
-                        "model":model_arg,
+                        "model": model_arg,
                         "custom_model": model_arg if model_arg not in ["default", "sd15", "sd21", "sdxl"] else "none",
                         "lora": lora_name or "none",
                         "prompt": prompt,
@@ -705,6 +824,34 @@ def main():
                 
             except Exception as e:
                 print(f"[WARN] 第 {i+1} 張圖片上傳到 MongoDB 失敗: {str(e)}")
+        
+        # 清理臨時檔案
+        try:
+            # 清理不再需要的臨時文件
+            if weight_file and os.path.exists(weight_file):
+                os.remove(weight_file)
+                print(f"[INFO] 已清理臨時 LoRA 檔案: {weight_file}")
+                
+            # 清理下載的自定義模型
+            if custom_model_path:
+                temp_model_file = os.path.join(
+                    os.path.dirname(os.path.abspath(__file__)), 
+                    "temp_models", 
+                    os.path.basename(custom_model_path)
+                )
+                
+                if os.path.exists(temp_model_file):
+                    os.remove(temp_model_file)
+                    print(f"[INFO] 已清理臨時模型檔案: {temp_model_file}")
+                
+                # 檢查帶後綴的模型文件
+                for suffix in [".safetensors", ".ckpt"]:
+                    alt_path = temp_model_file + suffix
+                    if os.path.exists(alt_path):
+                        os.remove(alt_path)
+                        print(f"[INFO] 已清理臨時模型檔案: {alt_path}")
+        except Exception as e:
+            print(f"[WARN] 清理臨時檔案失敗: {e}")
         
         # 返回所有生成圖片的ID
         if len(all_file_ids) == 1:

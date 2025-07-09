@@ -15,4 +15,10 @@ router.delete('/images/:fileId', chatController.deleteImage);
 router.get('/images/:fileId', chatController.getImage); // 添加圖片路由
 router.delete('/chat/:chatId', chatController.deleteChat); // 添加刪除對話路由
 
+// 新增 LoRA 和模型檔案上傳路由
+router.post('/upload/lora', chatController.uploadLora);
+router.post('/upload/model', chatController.uploadModel);
+router.get('/loras', chatController.getLoraList);
+router.get('/models', chatController.getModelList);
+
 module.exports = router;
