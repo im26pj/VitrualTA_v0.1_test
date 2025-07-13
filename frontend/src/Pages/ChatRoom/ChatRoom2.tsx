@@ -12,7 +12,8 @@ import {
   getImageUrl, 
   deleteImage, 
   getModelList, 
-  getLoraList 
+  getLoraList ,
+  deleteChatHistory
 } from '../../../api_servers';
 import { SystemContextDiagram } from '../Graph/SCD';
 import { MindMap } from '../Graph/mindmap';
@@ -141,6 +142,7 @@ interface Lora {
   prettySize: string;
   loraImages?: string[]; // 添加圖片ID數組
   loraMainImage?: string; // 添加主圖ID
+  modelType?: string;
 }
 
 // 首先在現有的 interface 之後添加新的介面定義
@@ -231,6 +233,9 @@ export const ChatRoom = (): JSX.Element => {
   const [uploadMessage, setUploadMessage] = useState<{type: 'success' | 'error', message: string} | null>(null);
   const modelFileInputRef = useRef<HTMLInputElement>(null);
   const modelImageInputRef = useRef<HTMLInputElement>(null);
+
+  //添加紀錄是否使用lora 、 model 變數
+  const [isUsingModelLora, setIsUsingModelLora] = useState<boolean>(false);
 
   const handleDropdownToggle = () => setShowDropdown(!showDropdown);
 
@@ -412,15 +417,31 @@ export const ChatRoom = (): JSX.Element => {
     setUploadingImages([]);
 
     try {
-      const messageData = {
+      const messageData: {
+        conversationHistory: Message[];
+        chat_id: string | null;
+        isVisitor: boolean;
+        isNewChat: boolean;
+        img_id: string[];
+        model: "sd15" | "sd21" | "sdxl" | "sd3-m" | "sd35-m" | "sd35-l";
+        genpic_num: number;
+        webui_style_model_name?: string; // 新增可選屬性
+        lora_name?: string;             // 新增可選屬性
+      } = {
         conversationHistory: [...messages, userMessage],
         chat_id: currentChatId,
         isVisitor: false,
         isNewChat: messages.length === 0,
         img_id: currentImageIds,
         model: selectedModel,
-        genpic_num: selectedImageCount  // 添加圖片數量參數
+        genpic_num: selectedImageCount,
       };
+
+
+      if(isUsingModelLora){
+        if(currentModelIndex === 0){messageData.webui_style_model_name = selectedModelInfo?.fileId;}
+        else if(currentModelIndex === 1){messageData.lora_name = selectedLora?.fileId;}
+      }//等等回來3
 
       await fetchSSEStream(
         "/api/chat",
@@ -508,6 +529,22 @@ export const ChatRoom = (): JSX.Element => {
       await handleFileUpload(e.dataTransfer.files);
     }
   };
+
+  const ApplyModelLora = async () => {
+    if(currentModelIndex === 0 ){
+      console.log("custom model id :", selectedLora); 
+      console.log("custom model info: ", selectedModelInfo);
+      setSelectedModel(selectedModelInfo?.modelType as "sd15" | "sd21" | "sdxl" | "sd3-m" | "sd35-m" | "sd35-l");
+    }
+    else if(currentModelIndex === 1 ){
+      console.log("lora id: ", selectedModelInfo?.modelType);
+      setSelectedModel(selectedLora?.modelType as "sd15" | "sd21" | "sdxl" | "sd3-m" | "sd35-m" | "sd35-l");
+
+    }//等等回來2
+   
+    setIsUsingModelLora(true);
+  }
+
 
   // 修改 GraphRenderer 組件
   const GraphRenderer: React.FC<{ data: any, mode: 'graph' | 'mindmap' }> = ({ data, mode }) => {
@@ -2222,7 +2259,7 @@ export const ChatRoom = (): JSX.Element => {
                         <span className="font-bold">MODEL TYPE:</span>
                         <div className="border-b border-black mt-1 pb-1">
                           {currentModelIndex === 0 && selectedModelInfo ? selectedModelInfo.modelType : ''}
-                          {currentModelIndex === 1 ? 'LoRA' : ''}
+                          {currentModelIndex === 1 && selectedLora ? selectedLora.modelType : ''}
                         </div>
                       </div>
                       <div className="mb-2">
@@ -2239,7 +2276,7 @@ export const ChatRoom = (): JSX.Element => {
                           {currentModelIndex === 1 && selectedLora ? selectedLora.prettySize : ''}
                         </div>
                       </div>
-                      <div className="mb-2">
+                      <div className="mb-2 border-b  overflow-y-auto max-h-[4.5em] leading-[1.5em]">
                         <span className="font-bold">DESCRIPTION:</span>
                         <div className="border-b border-black mt-1 pb-1">
                           {currentModelIndex === 0 && selectedModelInfo ? (selectedModelInfo.description || '-') : ''}
@@ -2254,9 +2291,19 @@ export const ChatRoom = (): JSX.Element => {
                             : 'No images'
                           }
                         </div>
+                          {currentModelIndex === 0 && selectedModelInfo ? (selectedModelInfo.fileId|| '-') : ''}
+                          {currentModelIndex === 1 && selectedLora ? (selectedLora.fileId || '-') : ''}
                       </div>
                     </div>
-                  </div>
+                      <button 
+                      className="border-2 border-black p-3 text-center hover:bg-gray-100 hover:shadow-md hover:translate-y-[-2px] mt-4 rounded-md transition-all"
+                      onClick={() =>{
+                        ApplyModelLora();
+                        setShowPictureSettings(false);
+                      }
+                    }//等等回來
+                      > APPLY </button>
+                </div>
                 </>
               ) : (
                 // 上傳UI部分

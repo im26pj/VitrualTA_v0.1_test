@@ -1,7 +1,19 @@
 import React, { JSX, useEffect, useRef, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { clearAuthToken, getAuthToken } from "../../utils/auth";
-import { fetchSSEStream, apiGet, uploadImage, getImageUrl, deleteImage, generateGraph, deleteChatHistory } from "../../../api_servers";
+import { 
+  fetchWithFallback, 
+  fetchSSEStream, 
+  apiGet, 
+  apiPost, 
+  apiDelete, 
+  apiPostFormData,
+  uploadImage, 
+  getImageUrl, 
+  deleteImage, 
+  getModelList, 
+  getLoraList 
+} from '../../../api_servers';
 import { SystemContextDiagram } from '../Graph/SCD';
 import { MindMap } from '../Graph/mindmap';
 import ReactMarkdown from 'react-markdown';
@@ -105,6 +117,40 @@ interface Bounds {
   maxY: number;
 }
 
+// 添加模型和LoRA相關介面
+interface Model {
+  fileId: string;
+  filename: string;
+  originalFilename: string;
+  modelType: string;
+  description: string;
+  uploadDate: string;
+  size: number;
+  prettySize: string;
+  modelImages?: string[]; // 添加圖片ID數組
+  modelMainImage?: string; // 添加主圖ID
+}
+
+interface Lora {
+  fileId: string;
+  filename: string;
+  originalFilename: string;
+  description: string;
+  uploadDate: string;
+  size: number;
+  prettySize: string;
+  loraImages?: string[]; // 添加圖片ID數組
+  loraMainImage?: string; // 添加主圖ID
+}
+
+// 首先在現有的 interface 之後添加新的介面定義
+interface UploadingFile {
+  file: File;
+  preview?: string;
+  name: string;
+  type: string;
+}
+
 export const ChatRoom = (): JSX.Element => {
   const navigate = useNavigate();
   const [showDropdown, setShowDropdown] = useState(false);
@@ -140,13 +186,54 @@ export const ChatRoom = (): JSX.Element => {
 
   // 在 ChatRoom 組件的開頭添加以下狀態變數
   const [showToolMenu, setShowToolMenu] = useState(false);
-  const [showModelOptions, setShowModelOptions] = useState(false);
   const [selectedModel, setSelectedModel] = useState<"sd15" | "sd21" | "sdxl" | "sd3-m" | "sd35-m" | "sd35-l">("sd15"); // 預設為 1.5
   const toolButtonRef = useRef<HTMLButtonElement>(null);
+
+  // 新增模型選單狀態
+  const [showModelOptions, setShowModelOptions] = useState(false);
 
   // 在 ChatRoom 組件內添加新的狀態變數
   const [showImageCountOptions, setShowImageCountOptions] = useState(false);
   const [selectedImageCount, setSelectedImageCount] = useState<number>(1); // 預設為 1
+
+  // 在現有的狀態變數區域添加新的狀態
+  const [showUploadUI, setShowUploadUI] = useState(false);
+  const [selectedSD, setSelectedSD] = useState<string>(""); // 用於追蹤選擇的SD模型
+
+  // 添加缺少的狀態變數
+  const [showPictureSettings, setShowPictureSettings] = useState(false);
+  const [currentModelIndex, setCurrentModelIndex] = useState(0);
+  const modelNames = ["MODEL", "LORA"];
+
+  // 在現有的狀態變數區域添加新的狀態
+  const [modelType, setModelType] = useState<"CUSTOM MODEL" | "LORA">("CUSTOM MODEL"); // 用於追蹤 CUSTOM MODEL 或 LORA
+  const [sdVersion, setSdVersion] = useState<string>("SD 1.5"); // 用於追蹤選擇的 SD 版本
+  const [modelDescription, setModelDescription] = useState<string>(""); // 用於追蹤模型描述
+  const [modelUrl, setModelUrl] = useState<string>(""); // 用於追蹤輸入的模型網址
+
+  // 修改模型和LoRA相關狀態
+  const [models, setModels] = useState<Model[]>([]);
+  const [loras, setLoras] = useState<Lora[]>([]);
+  const [selectedModelInfo, setSelectedModelInfo] = useState<Model | null>(null);
+  const [selectedLora, setSelectedLora] = useState<Lora | null>(null);
+  const [showModelDropdown, setShowModelDropdown] = useState(false);
+  const [isLoadingModels, setIsLoadingModels] = useState(false);
+  const [modelLoadError, setModelLoadError] = useState<string | null>(null);
+  
+  // 添加新狀態用於追蹤當前顯示的模型圖片
+  const [currentModelImageIndex, setCurrentModelImageIndex] = useState(0);
+  const [currentModelImages, setCurrentModelImages] = useState<string[]>([]);
+
+  // 添加新的狀態變數
+  const [uploadingFile, setUploadingFile] = useState<UploadingFile | null>(null);
+  const [filePreview, setFilePreview] = useState<string | null>(null);
+  const [isModelUploading, setIsModelUploading] = useState(false);
+  const [uploadMessage, setUploadMessage] = useState<{type: 'success' | 'error', message: string} | null>(null);
+  const modelFileInputRef = useRef<HTMLInputElement>(null);
+  const modelImageInputRef = useRef<HTMLInputElement>(null);
+
+  //添加紀錄是否使用lora 、 model 變數
+  const [isUsingModelLora, setIsUsingModelLora] = useState<boolean>(false);
 
   const handleDropdownToggle = () => setShowDropdown(!showDropdown);
 
@@ -328,15 +415,31 @@ export const ChatRoom = (): JSX.Element => {
     setUploadingImages([]);
 
     try {
-      const messageData = {
+      const messageData: {
+        conversationHistory: Message[];
+        chat_id: string | null;
+        isVisitor: boolean;
+        isNewChat: boolean;
+        img_id: string[];
+        model: "sd15" | "sd21" | "sdxl" | "sd3-m" | "sd35-m" | "sd35-l";
+        genpic_num: number;
+        webui_style_model_name?: string; // 新增可選屬性
+        lora_name?: string;             // 新增可選屬性
+      } = {
         conversationHistory: [...messages, userMessage],
         chat_id: currentChatId,
         isVisitor: false,
         isNewChat: messages.length === 0,
         img_id: currentImageIds,
         model: selectedModel,
-        genpic_num: selectedImageCount  // 添加圖片數量參數
+        genpic_num: selectedImageCount,
       };
+
+
+      if(isUsingModelLora){
+        if(currentModelIndex === 0){messageData.webui_style_model_name = selectedModelInfo?.fileId;}
+        else if(currentModelIndex === 1){messageData.lora_name = selectedLora?.fileId;}
+      }//等等回來3
 
       await fetchSSEStream(
         "/api/chat",
@@ -424,6 +527,22 @@ export const ChatRoom = (): JSX.Element => {
       await handleFileUpload(e.dataTransfer.files);
     }
   };
+
+  const ApplyModelLora = async () => {
+    if(currentModelIndex === 0 ){
+      console.log("custom model id :", selectedLora); 
+      console.log("custom model info: ", selectedModelInfo);
+      setSelectedModel(selectedModelInfo?.modelType as "sd15" | "sd21" | "sdxl" | "sd3-m" | "sd35-m" | "sd35-l");
+    }
+    else if(currentModelIndex === 1 ){
+      console.log("lora id: ", selectedModelInfo?.modelType);
+      setSelectedModel(selectedLora?.modelType as "sd15" | "sd21" | "sdxl" | "sd3-m" | "sd35-m" | "sd35-l");
+
+    }//等等回來2
+   
+    setIsUsingModelLora(true);
+  }
+
 
   // 修改 GraphRenderer 組件
   const GraphRenderer: React.FC<{ data: any, mode: 'graph' | 'mindmap' }> = ({ data, mode }) => {
@@ -1062,23 +1181,19 @@ export const ChatRoom = (): JSX.Element => {
   // 修改點擊外部區域關閉選單的邏輯
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      // 檢查是否點擊到模型選單
       const modelMenuElement = document.querySelector('.model-options-menu');
       const modelButtonElement = document.querySelector('[data-model-button]');
-      
-      // 檢查是否點擊到數量選單
       const countMenuElement = document.querySelector('.image-count-menu');
       const countButtonElement = document.querySelector('[data-count-button]');
       
-      // 確保點擊不是在按鈕或菜單上才關閉菜單
-      if (!modelMenuElement?.contains(event.target as Node) && 
-          !modelButtonElement?.contains(event.target as Node) && 
+      if (!modelMenuElement?.contains(event.target as Node) &&
+          !modelButtonElement?.contains(event.target as Node) &&
           showModelOptions) {
         setShowModelOptions(false);
       }
       
-      if (!countMenuElement?.contains(event.target as Node) && 
-          !countButtonElement?.contains(event.target as Node) && 
+      if (!countMenuElement?.contains(event.target as Node) &&
+          !countButtonElement?.contains(event.target as Node) &&
           showImageCountOptions) {
         setShowImageCountOptions(false);
       }
@@ -1090,6 +1205,355 @@ export const ChatRoom = (): JSX.Element => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [showModelOptions, showImageCountOptions]); // 保持依賴項一致
+
+  // 修改獲取模型和LoRA的函數
+  const fetchModelsAndLoras = async () => {
+    setIsLoadingModels(true);
+    setModelLoadError(null);
+    
+    try {
+      // 獲取模型列表
+      const modelResponse = await getModelList();
+      if (modelResponse.success && modelResponse.models.length > 0) {
+        setModels(modelResponse.models);
+        // 預設選擇第一個模型
+        setSelectedModelInfo(modelResponse.models[0]);
+        
+        // 設置初始模型圖片
+        if (modelResponse.models[0].modelImages && modelResponse.models[0].modelImages.length > 0) {
+          setCurrentModelImages(modelResponse.models[0].modelImages);
+          setCurrentModelImageIndex(0);
+        } else {
+          setCurrentModelImages([]);
+        }
+      } else {
+        setModels([]);
+        setSelectedModelInfo(null);
+        setCurrentModelImages([]);
+      }
+      
+      // 獲取 LoRA 列表
+      const loraResponse = await getLoraList();
+      if (loraResponse.success && loraResponse.loras.length > 0) {
+        setLoras(loraResponse.loras);
+        // 預設選擇第一個 LoRA
+        setSelectedLora(loraResponse.loras[0]);
+      } else {
+        setLoras([]);
+        setSelectedLora(null);
+      }
+    } catch (error) {
+      console.error('載入模型和LoRA列表失敗:', error);
+      setModelLoadError('載入失敗，請重試');
+    } finally {
+      setIsLoadingModels(false);
+    }
+  };
+
+  // 當打開 Picture Setting 時獲取模型和 LoRA 列表
+  useEffect(() => {
+    if (showPictureSettings) {
+      fetchModelsAndLoras();
+    }
+  }, [showPictureSettings]);
+
+  // 處理模型選擇
+  const handleModelSelect = (model: Model) => {
+    setSelectedModelInfo(model);
+    setShowModelDropdown(false);
+    
+    // 更新當前顯示的圖片
+    if (model.modelImages && model.modelImages.length > 0) {
+      setCurrentModelImages(model.modelImages);
+      setCurrentModelImageIndex(0);
+    } else {
+      setCurrentModelImages([]);
+    }
+  };
+
+  // 處理 LoRA 選擇
+  const handleLoraSelect = (lora: Lora) => {
+    setSelectedLora(lora);
+    setShowModelDropdown(false);
+    
+    // 更新當前顯示的圖片
+    if (lora.loraImages && lora.loraImages.length > 0) {
+      setCurrentModelImages(lora.loraImages);
+      setCurrentModelImageIndex(0);
+    } else {
+      setCurrentModelImages([]);
+    }
+  };
+  
+  // 添加圖片導航函數
+  const navigateImage = (direction: 'prev' | 'next') => {
+    if (currentModelImages.length === 0) return;
+    
+    if (direction === 'prev') {
+      setCurrentModelImageIndex(prev => 
+        prev === 0 ? currentModelImages.length - 1 : prev - 1
+      );
+    } else {
+      setCurrentModelImageIndex(prev => 
+        prev === currentModelImages.length - 1 ? 0 : prev + 1
+      );
+    }
+  };
+
+  // 修改 handleModelFileUpload 函數
+  const handleModelFileUpload = (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    
+    const file = files[0]; // 只取第一個檔案
+    
+    // 檢查檔案類型
+    const isImage = file.type.startsWith('image/');
+    const isModelFile = file.name.endsWith('.safetensors') || 
+                        file.name.endsWith('.ckpt') || 
+                        file.name.endsWith('.pt') || 
+                        file.name.endsWith('.bin') ||
+                        file.name.endsWith('.zip');
+    
+    if (isImage) {
+      // 如果是圖片，設置為預覽圖
+      const previewUrl = URL.createObjectURL(file);
+      setFilePreview(previewUrl);
+      
+      // 當檔案是圖片時，自動觸發圖片上傳區的變更
+      handleModelImageUpload(files);
+      return;
+    }
+    
+    if (isModelFile) {
+      // 如果是模型檔案
+      setUploadingFile({
+        file,
+        name: file.name,
+        type: file.type
+      });
+      setUploadMessage(null);
+    } else {
+      setUploadMessage({
+        type: 'error',
+        message: '不支援的檔案類型。請上傳 .safetensors, .ckpt, .pt, .bin 或 .zip 檔案。'
+      });
+    }
+  };
+
+  // 添加模型圖片上傳處理函數
+  const handleModelImageUpload = (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    
+    const file = files[0];
+    if (!file.type.startsWith('image/')) {
+      setUploadMessage({
+        type: 'error',
+        message: '只能上傳圖片檔案'
+      });
+      return;
+    }
+    
+    // 生成預覽
+    const previewUrl = URL.createObjectURL(file);
+    setFilePreview(previewUrl);
+    
+    // 設置到 ref，以便之後上傳
+    if (modelType === "CUSTOM MODEL") {
+      if (modelImageInputRef.current) {
+        // 創建一個新的 FileList 物件是不可能的，所以我們需要一個替代方案
+        // 這裡直接替換整個 input 元素的方式處理
+        const dataTransfer = new DataTransfer();
+        dataTransfer.items.add(file);
+        modelImageInputRef.current.files = dataTransfer.files;
+      }
+    } else {
+      if (modelImageInputRef.current) {
+        const dataTransfer = new DataTransfer();
+        dataTransfer.items.add(file);
+        modelImageInputRef.current.files = dataTransfer.files;
+      }
+    }
+  };
+
+  // 修改上傳模型或LoRA的函數
+  const uploadModelOrLora = async () => {
+    // 檢查必要的選項是否已選擇
+    if (modelType !== "CUSTOM MODEL" && modelType !== "LORA") {
+      setUploadMessage({
+        type: 'error',
+        message: '請選擇檔案類型 (CUSTOM MODEL 或 LORA)'
+      });
+      return;
+    }
+    
+    // 檢查是否有檔案或網址
+    if (!uploadingFile && !modelUrl) {
+      setUploadMessage({
+        type: 'error',
+        message: '請上傳檔案或輸入模型網址'
+      });
+      return;
+    }
+    
+    // 如果是上傳檔案，必須選擇SD版本
+    if (uploadingFile && !modelUrl && sdVersion === "") {
+      setUploadMessage({
+        type: 'error',
+        message: '請選擇模型類型 (SD版本)'
+      });
+      return;
+    }
+    
+    setIsModelUploading(true); // 設置上傳中狀態
+    setUploadMessage(null);
+    
+    try {
+      // 準備要傳送的資料
+      let requestData = {};
+      
+      // 添加公共參數
+      requestData = {
+        description: modelDescription
+      };
+      
+      if (modelUrl) {
+        // URL 上傳方式
+        requestData = {
+          ...requestData,
+          filePath: modelUrl
+        };
+      }
+      
+      // 檔案上傳需要使用 FormData
+      if (uploadingFile) {
+        const formData = new FormData();
+        
+        // 添加描述
+        formData.append('description', modelDescription);
+        
+        // 如果有 URL
+        if (modelUrl) {
+          formData.append('filePath', modelUrl);
+        }
+        
+        // 根據類型添加檔案
+        if (modelType === "CUSTOM MODEL") {
+          formData.append('modelFile', uploadingFile.file);
+          formData.append('modelType', sdVersion.replace(" - M", "").replace(" - L", "").replace(" ", "").toLowerCase());
+        } else {
+          formData.append('loraFile', uploadingFile.file);
+        }
+        
+        // 如果有圖片預覽，表示已上傳圖片
+        if (filePreview) {
+          // 從 DOM 中獲取上傳的圖片檔案
+          const imageInput = modelType === "CUSTOM MODEL" 
+            ? modelImageInputRef.current?.files?.[0]
+            : modelImageInputRef.current?.files?.[0];
+          
+          if (imageInput) {
+            if (modelType === "CUSTOM MODEL") {
+              formData.append('modelImage', imageInput);
+            } else {
+              formData.append('loraImage', imageInput);
+            }
+          }
+        }
+        
+        // 使用適合 FormData 的方法
+        const result = await apiPostFormData(
+          modelType === "CUSTOM MODEL" ? '/api/upload/model' : '/api/upload/lora',
+          formData
+        );
+        
+        if (result.success) {
+          setUploadMessage({
+            type: 'success',
+            message: `${modelType === "CUSTOM MODEL" ? '模型' : 'LoRA'} 上傳成功！`
+          });
+          
+          // 重新獲取模型和LoRA列表
+          fetchModelsAndLoras();
+          
+          // 清除上傳的檔案和預覽
+          setUploadingFile(null);
+          if (filePreview) {
+            URL.revokeObjectURL(filePreview);
+            setFilePreview(null);
+          }
+          
+          // 清除選擇的SD版本和描述
+          setSdVersion("");
+          setModelDescription("");
+          setModelUrl("");
+        } else {
+          throw new Error(result.message || '上傳失敗');
+        }
+      } else {
+        // 僅 URL 上傳 (無檔案)
+        // 根據選擇的檔案類型呼叫對應的 API
+        const result = await apiPost(
+          modelType === "CUSTOM MODEL" ? '/api/upload/model' : '/api/upload/lora', 
+          requestData
+        );
+        
+        if (result.success) {
+          setUploadMessage({
+            type: 'success',
+            message: `${modelType === "CUSTOM MODEL" ? '模型' : 'LoRA'} 上傳成功！`
+          });
+          
+          // 重新獲取模型和LoRA列表
+          fetchModelsAndLoras();
+          
+          // 清除輸入內容
+          setModelUrl("");
+          setModelDescription("");
+          setSdVersion("");
+        } else {
+          throw new Error(result.message || '上傳失敗');
+        }
+      }
+    } catch (error) {
+      console.error('上傳失敗:', error);
+      setUploadMessage({
+        type: 'error',
+        message: error instanceof Error ? error.message : '上傳失敗，請重試'
+      });
+    } finally {
+      setIsModelUploading(false);
+    }
+  };
+
+  // 在 useEffect 中添加清理預覽圖片的邏輯
+  useEffect(() => {
+    return () => {
+      if (filePreview) {
+        URL.revokeObjectURL(filePreview);
+      }
+    };
+  }, [filePreview]);
+
+  // 添加檔案拖放處理函數
+  const handleModelFileDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+      handleModelFileUpload(files);
+    }
+  };
+
+  const handleModelImageDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const files = e.dataTransfer.files;
+    if (files.length > 0 && files[0].type.startsWith('image/')) {
+      handleModelImageUpload(files);
+    }
+  };
 
   return (
     <div className="bg-[#6683d2] flex flex-col items-center w-full min-h-screen px-4 md:px-8">
@@ -1396,9 +1860,9 @@ export const ChatRoom = (): JSX.Element => {
                   </button>
                   <button
                     className="w-[25%] h-10 md:h-12 bg-[#d9d9d9] px-0.5 py-1 rounded-2xl text-[11px] md:text-base font-Inknut_Antiqua-Regular"
-                    onClick={() => handleNavigate("/mindmap")}  
+                    onClick={() => setShowPictureSettings(true)}  // 改為開啟圖片設定視窗
                   >
-                    Mind Map
+                    Picture Setting
                   </button>
                 </div>
 
@@ -1421,68 +1885,42 @@ export const ChatRoom = (): JSX.Element => {
                       className="text-gray-700 hover:text-gray-900 cursor-pointer px-2 flex items-center flex-shrink-0"
                       type="button"
                     >
+                   
                       <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                       </svg>
                     </button>
 
                     {/* 保持 textarea */}
-                    <textarea
-                      value={question}
-                      onChange={(e) => setQuestion(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          if (e.shiftKey) {
-                            // Shift + Enter 換行，不做處理
-                            return;
-                          } else if (question.trim() && !isLoading) {
-                            e.preventDefault();
-                            handleSendMessage();
+                    <div className="ml-2 flex-1 relative">
+                      <textarea
+                        value={question}
+                        onChange={(e) => setQuestion(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            if (e.shiftKey) {
+                              // Shift + Enter 換行，不做處理
+                              return;
+                            } else if (question.trim() && !isLoading) {
+                              e.preventDefault();
+                              handleSendMessage();
+                            }
                           }
-                        }
-                      }}
-                      className="ml-2 flex-1 bg-transparent focus:outline-none text-lg resize-none"
-                      placeholder={isLoading ? "Model is responding..." : "Type your message (Shift + Enter for new line)..."}
-                    />
-
-                    {/* 發送按鈕 */}
-                    <button
-                      onClick={() => {
-                        if (!isLoading && question.trim()) {
-                          handleSendMessage();
-                        }
-                      }}
-                      className={sendButtonStyle}
-                      type="button"
-                    >
-                      <img
-                        className={sendButtonImageStyle}
-                        src="/pic/polygon-3-2.svg"
-                        alt="Send"
-                      />
-                    </button>
-                  </div>
-
-                  {/* 上傳圖片預覽區域 */}
-                  {uploadingImages.map((image) => (
-                    <div key={image.id} className="flex items-center gap-2 px-2 py-1 bg-gray-100 rounded-lg">
-                      {image.preview && (
-                        <img 
-                          src={image.preview}
-                          alt={image.name}
-                          className="w-6 h-6 object-contain"
-                        />
+                        }}
+                        className="w-full bg-transparent focus:outline-none text-lg resize-none"
+                      ></textarea>
+                      
+                      {question.trim() && (
+                        <button 
+                          type="button"
+                          className="absolute right-2 top-2 text-gray-500 hover:text-gray-700"
+                          onClick={() => setQuestion("")}
+                        >
+                          ×
+                        </button>
                       )}
-                      <span className="text-sm text-gray-600">{image.name}</span>
-                      <button
-                        onClick={() => handleDeleteImage(image.id)}
-                        className="ml-auto text-gray-500 hover:text-gray-700"
-                        type="button"
-                      >
-                        ×
-                      </button>
                     </div>
-                  ))}
+                  </div>
 
                   {/* 圖片生成模型與數量控制放在同一列 */}
                   <div className="flex items-center text-xs text-gray-500 mt-1 ml-2 space-x-4">
@@ -1491,7 +1929,7 @@ export const ChatRoom = (): JSX.Element => {
                       <span>圖片生成模型: </span>
                       <span className="font-semibold ml-1">
                         {selectedModel === "sd15" && "Stable-Diffusion 1.5"}
-                        {selectedModel === "sd21" && "Stable-Diffusion 2.1"}
+                        {selectedModel === "sd21" && "Stable-Diffusion  2.1"}
                         {selectedModel === "sdxl" && "Stable-Diffusion XL"}
                         {selectedModel === "sd3-m" && "Stable-Diffusion 3 medium"}
                         {selectedModel === "sd35-m" && "Stable-Diffusion 3.5 medium"}
@@ -1522,25 +1960,25 @@ export const ChatRoom = (): JSX.Element => {
                       {/* 彈出式模型選單 */}
                       {showModelOptions && (
                         <div className="absolute bottom-6 left-0 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-30 w-52 model-options-menu animate-slide-up">
-                          {[
-                            { id: "sd15", name: "Stable-Diffusion 1.5" },
-                            { id: "sd21", name: "Stable-Diffusion 2.1" },
-                            { id: "sdxl", name: "Stable-Diffusion XL" },
-                            { id: "sd3-m", name: "Stable-Diffusion 3 medium" },
-                            { id: "sd35-m", name: "Stable-Diffusion 3.5 medium" },
-                            { id: "sd35-l", name: "Stable-Diffusion 3.5 Large" }
-                          ].map((model) => (
+                          {Object.entries({
+                            sd15: "Stable-Diffusion 1.5",
+                            sd21: "Stable-Diffusion 2.1", 
+                            sdxl: "Stable-Diffusion XL",
+                            "sd3-m": "Stable-Diffusion 3 medium",
+                            "sd35-m": "Stable-Diffusion 3.5 medium",
+                            "sd35-l": "Stable-Diffusion 3.5 Large"
+                          }).map(([key, name]) => (
                             <div 
-                              key={model.id}
+                              key={key}
                               onClick={() => {
-                                setSelectedModel(model.id as "sd15" | "sd21" | "sdxl" | "sd3-m" | "sd35-m" | "sd35-l");
+                                setSelectedModel(key as "sd15" | "sd21" | "sdxl" | "sd3-m" | "sd35-m" | "sd35-l");
                                 setShowModelOptions(false);
                               }}
                               className={`px-4 py-2 cursor-pointer hover:bg-gray-100 ${
-                                selectedModel === model.id ? 'bg-blue-50 text-blue-600 font-medium' : ''
+                                selectedModel === key ? 'bg-blue-50 text-blue-600 font-medium' : ''
                               }`}
                             >
-                              {model.name}
+                              {name}
                             </div>
                           ))}
                         </div>
@@ -1573,9 +2011,9 @@ export const ChatRoom = (): JSX.Element => {
                         </svg>
                       </button>
                       
-                      {/* 彈出式數量選單 - 一次只顯示5個，可滾動 */}
+                      {/* 彈出式數量選單 - 一次只顯示5個，可滾动 */}
                       {showImageCountOptions && (
-                        <div className="absolute bottom-6 left-0 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-30 w-28 image-count-menu animate-slide-up max-h-[165px] overflow-y-auto">
+                        <div className="absolute bottom-6 left-0 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-30 w-28 max-h-[165px] overflow-y-auto image-count-menu animate-slide-up">
                           {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((count) => (
                             <div 
                               key={count}
@@ -1601,16 +2039,559 @@ export const ChatRoom = (): JSX.Element => {
         </div>
       </div>
 
-      {/* 添加隱藏的檔案輸入元素 */}
-      <input
-        type="file"
-        id="file-upload-input"
-        ref={fileInputRef}
-        onChange={(e) => handleFileUpload(e.target.files)}
-        accept="image/*"
-        multiple
-        style={{ display: 'none' }}
-      />
+      {/* 將剩餘的 JSX 元素放在同一個父元素中 */}
+      <>
+        {/* Picture Settings Modal */}
+        {showPictureSettings && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 animate-fade-in">
+            <div className="bg-white rounded-lg shadow-xl p-6 max-w-4xl w-[90%] max-h-[90vh] flex flex-col md:flex-row gap-6 relative">
+              {/* 關閉按鈕 - 絕對定位並添加背景 */}
+              <button 
+                onClick={() => {
+                  setShowPictureSettings(false);
+                  setShowUploadUI(false);
+                }}
+                className="absolute right-1 top-1 text-gray-500 hover:text-gray-700 bg-white rounded-full p-1.5 shadow-sm z-50 hover:bg-gray-100 transition-colors"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+
+              {/* 根據 showUploadUI 的狀態切換顯示內容 */}
+              {!showUploadUI ? (
+                // 原始的浮動視窗內容
+                <>
+                  {/* 左側圖片展示區 - 加上圓角與 hover 效果 */}
+                  <div className="flex-1 border-2 border-black relative rounded-md hover:shadow-md transition-shadow">
+                    <div className="aspect-square w-full flex items-center justify-center bg-gray-50">
+                      {isLoadingModels ? (
+                        <div className="flex flex-col items-center justify-center">
+                          <svg className="animate-spin h-10 w-10 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          <p className="mt-2 text-gray-500">載入中...</p>
+                        </div>
+                      ) : modelLoadError ? (
+                        <p className="text-red-500">{modelLoadError}</p>
+                      ) : currentModelImages.length > 0 && currentModelImageIndex < currentModelImages.length ? (
+                        // 顯示模型圖片
+                        <img 
+                          src={getImageUrl(currentModelImages[currentModelImageIndex])}
+                          alt={`${currentModelIndex === 0 ? "Model" : "LoRA"} image`}
+                          className="max-w-full max-h-full object-contain"
+                        />
+                      ) : (
+                        // 無圖片時顯示名稱
+                        <div className="text-center text-gray-500 p-4">
+                          {currentModelIndex === 0 && selectedModelInfo && (
+                            <div>
+                              <p className="font-medium text-lg">{selectedModelInfo.filename}</p>
+                              <p className="text-sm">({selectedModelInfo.modelType})</p>
+                              <p className="text-xs mt-2 text-gray-400">無預覽圖</p>
+                            </div>
+                          )}
+                          {currentModelIndex === 1 && selectedLora && (
+                            <div>
+                              <p className="font-medium text-lg">{selectedLora.filename}</p>
+                              <p className="text-sm">(LoRA)</p>
+                              <p className="text-xs mt-2 text-gray-400">無預覽圖</p>
+                            </div>
+                          )}
+                          {currentModelIndex === 2 && (
+                            <p>請上傳自訂模型</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 左右箭頭 - 實現圖片切換功能 */}
+                    <button 
+                      className="absolute left-2 top-1/2 transform -translate-y-1/2 text-black hover:bg-gray-100 hover:scale-110 p-1 rounded-full transition-all"
+                      onClick={() => navigateImage('prev')}
+                      disabled={currentModelImages.length <= 1}
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                      </svg>
+                    </button>
+                    <button 
+                      className="absolute right-2 top-1/2 transform -translate-y-1/2 text-black hover:bg-gray-100 hover:scale-110 p-1 rounded-full transition-all"
+                      onClick={() => navigateImage('next')}
+                      disabled={currentModelImages.length <= 1}
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                    </button>
+
+                    {/* 底部選單和圖片數量 */}
+                    <div className="absolute left-0 bottom-0 flex items-center">
+                      <div 
+                        className="bg-white border-2 border-black p-2 mb-2 ml-2 rounded-md hover:bg-gray-50 cursor-pointer transition-colors relative"
+                        onClick={() => setShowModelDropdown(!showModelDropdown)}
+                      >
+                        {/* 修改這裡，直接顯示目前選取的模型或LoRA名稱，而不是類別名稱 */}
+                        <span className="font-bold">
+                          {currentModelIndex === 0 && selectedModelInfo 
+                            ? selectedModelInfo.filename
+                            : currentModelIndex === 1 && selectedLora 
+                              ? selectedLora.filename
+                              : modelNames[currentModelIndex]}
+                        </span>
+                        
+                        {/* 下拉選單 */}
+                        {showModelDropdown && (
+                          <div className="absolute bottom-full left-0 mb-1 bg-white border-2 border-black rounded-md shadow-lg z-10 w-64 max-h-72 overflow-y-auto">
+                            {/* 顯示當前模型類型作為標題 */}
+                            <div className="sticky top-0 bg-gray-100 p-2 font-bold border-b border-gray-300">
+                              {modelNames[currentModelIndex]}
+                            </div>
+                            
+                            {currentModelIndex === 0 && models.map((model) => (
+                              <div 
+                                key={model.fileId}
+                                className={`p-2 hover:bg-gray-100 cursor-pointer border-b border-gray-200 ${selectedModelInfo?.fileId === model.fileId ? 'bg-blue-50' : ''}`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleModelSelect(model);
+                                }}
+                              >
+                                <div className="font-semibold">{model.filename}</div>
+                                <div className="text-xs text-gray-500">
+                                  {model.modelType} · {model.prettySize}
+                                </div>
+                              </div>
+                            ))}
+                            
+                            {currentModelIndex === 1 && loras.map((lora) => (
+                              <div 
+                                key={lora.fileId}
+                                className={`p-2 hover:bg-gray-100 cursor-pointer border-b border-gray-200 ${selectedLora?.fileId === lora.fileId ? 'bg-blue-50' : ''}`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleLoraSelect(lora);
+                                }}
+                              >
+                                <div className="font-semibold">{lora.filename}</div>
+                                <div className="text-xs text-gray-500">
+                                  {lora.prettySize} · {new Date(lora.uploadDate).toLocaleDateString()}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    
+                    {/* 顯示圖片數量和當前位置 */}
+                    <div className="absolute right-0 bottom-0 mb-2 mr-2">
+                      <div className="flex items-center gap-2">
+                        {currentModelImages.length > 0 ? (
+                          <div className="flex items-center">
+                            {currentModelImages.map((_, i) => (
+                              <div 
+                                key={i} 
+                                className={`w-2 h-2 rounded-full mx-0.5 ${i === currentModelImageIndex ? 'bg-black' : 'bg-gray-300'} cursor-pointer hover:scale-125 transition-transform`}
+                                onClick={() => setCurrentModelImageIndex(i)}
+                              ></div>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-gray-500">無圖片</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* 選單文字 */}
+                    <div className="absolute left-0 top-1/2 transform -translate-y-1/2 ml-[-50px] rotate-90 origin-left">
+                      <span className="text-black">選單</span>
+                    </div>
+                  </div>
+
+                  {/* 右側控制區 */}
+                  <div className="flex flex-col gap-4 w-full md:w-1/3">
+                    {/* 模型選擇按鈕 */}
+                    {modelNames.map((name, index) => (
+                      <button 
+                        key={index}
+                        className={`border-2 ${currentModelIndex === index ? 'border-blue-500 bg-blue-50' : 'border-black'} p-3 text-center hover:bg-gray-100 hover:shadow-md hover:translate-y-[-2px] rounded-md transition-all`}
+                        onClick={() => {
+                          setCurrentModelIndex(index);
+                          
+                          // 更新顯示的圖片
+                          if (index === 0 && selectedModelInfo?.modelImages) {
+                            setCurrentModelImages(selectedModelInfo.modelImages);
+                            setCurrentModelImageIndex(0);
+                          } else if (index === 1 && selectedLora?.loraImages) {
+                            setCurrentModelImages(selectedLora.loraImages);
+                            setCurrentModelImageIndex(0);
+                          } else {
+                            setCurrentModelImages([]);
+                          }
+                        }}
+                      >
+                        {name}
+                      </button>
+                    ))}
+
+                    {/* 上傳按鈕 */}
+                    <button 
+                      className="border-2 border-black p-3 text-center hover:bg-gray-100 hover:shadow-md hover:translate-y-[-2px] mt-4 rounded-md transition-all"
+                      onClick={() => setShowUploadUI(true)}
+                    >
+                      UPLOAD
+                    </button>
+
+                    {/* 模型資訊表單 */}
+                    <div className="border-2 border-black p-4 mt-4 rounded-md hover:shadow-md transition-shadow">
+                      <div className="mb-2">
+                        <span className="font-bold">NAME:</span>
+                        <div className="border-b border-black mt-1 pb-1">
+                          {currentModelIndex === 0 && selectedModelInfo ? selectedModelInfo.filename : ''}
+                          {currentModelIndex === 1 && selectedLora ? selectedLora.filename : ''}
+                        </div>
+                      </div>
+                      <div className="mb-2">
+                        <span className="font-bold">MODEL TYPE:</span>
+                        <div className="border-b border-black mt-1 pb-1">
+                          {currentModelIndex === 0 && selectedModelInfo ? selectedModelInfo.modelType : ''}
+                          {currentModelIndex === 1 ? 'LoRA' : ''}
+                        </div>
+                      </div>
+                      <div className="mb-2">
+                        <span className="font-bold">SOURCE:</span>
+                        <div className="border-b border-black mt-1 pb-1">
+                          {currentModelIndex === 0 && selectedModelInfo ? (selectedModelInfo.originalFilename || '-') : ''}
+                          {currentModelIndex === 1 && selectedLora ? (selectedLora.originalFilename || '-') : ''}
+                        </div>
+                      </div>
+                      <div className="mb-2">
+                        <span className="font-bold">SIZE:</span>
+                        <div className="border-b border-black mt-1 pb-1">
+                          {currentModelIndex === 0 && selectedModelInfo ? selectedModelInfo.prettySize : ''}
+                          {currentModelIndex === 1 && selectedLora ? selectedLora.prettySize : ''}
+                        </div>
+                      </div>
+                      <div className="mb-2 border-b  overflow-y-auto max-h-[4.5em] leading-[1.5em]">
+                        <span className="font-bold">DESCRIPTION:</span>
+                        <div className="border-b border-black mt-1 pb-1">
+                          {currentModelIndex === 0 && selectedModelInfo ? (selectedModelInfo.description || '-') : ''}
+                          {currentModelIndex === 1 && selectedLora ? (selectedLora.description || '-') : ''}
+                        </div>
+                      </div>
+                      <div className="mb-2">
+                        <span className="font-bold">IMAGES:</span>
+                        <div className="border-b border-black mt-1 pb-1">
+                          {currentModelImages.length > 0 
+                            ? `${currentModelImageIndex + 1} / ${currentModelImages.length}`
+                            : 'No images'
+                          }
+                        </div>
+                          {currentModelIndex === 0 && selectedModelInfo ? (selectedModelInfo.fileId|| '-') : ''}
+                          {currentModelIndex === 1 && selectedLora ? (selectedLora.fileId || '-') : ''}
+                      </div>
+                    </div>
+                      <button 
+                      className="border-2 border-black p-3 text-center hover:bg-gray-100 hover:shadow-md hover:translate-y-[-2px] mt-4 rounded-md transition-all"
+                      onClick={() =>{
+                        ApplyModelLora();
+                        setShowPictureSettings(false);
+                      }
+                    }//等等回來
+                      > APPLY </button>
+                </div>
+                </>
+              ) : (
+                // 上傳UI部分
+                <>
+                  {/* 左上角返回按鈕 - 加上 hover 效果 */}
+                  <button 
+                    onClick={() => setShowUploadUI(false)}
+                    className="absolute left-1 top-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 hover:scale-110 p-1 rounded-full transition-all"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                    </svg>
+                  </button>
+                  
+                  <div className="flex flex-col md:flex-row gap-6 w-full">
+                    {/* 左側內容 */}
+                    <div className="flex-1 flex flex-col gap-4">
+                      {/* 檔案上傳區域 - 修改為可點擊和顯示上傳中的狀態 */}
+                      <div className="border-2 border-black p-4 rounded-md hover:shadow-md transition-shadow">
+                        <p className="text-center font-bold mb-2">檔案上傳區</p>
+                        <div 
+                          className={`border-2 border-dashed ${uploadingFile ? 'border-green-500 bg-green-50' : 'border-gray-300'} rounded-md p-6 flex flex-col items-center cursor-pointer hover:bg-gray-50 relative ${isModelUploading ? 'pointer-events-none' : ''}`}
+                          onClick={() => modelFileInputRef.current?.click()}
+                          onDragOver={(e) => e.preventDefault()}
+                          onDrop={handleModelFileDrop}
+                        >
+                          {isModelUploading ? (
+                            <div className="flex flex-col items-center justify-center">
+                              <svg className="animate-spin h-10 w-10 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                              </svg>
+                              <p className="mt-2 text-gray-600">上傳中，請稍候...</p>
+                            </div>
+                          ) : uploadingFile ? (
+                            <div className="flex flex-col items-center">
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                              </svg>
+                              <p className="mt-2 text-gray-700">{uploadingFile.name}</p>
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setUploadingFile(null);
+                                }}
+                                className="mt-3 px-2 py-1 bg-red-50 text-red-600 text-sm rounded hover:bg-red-100 transition-colors"
+                              >
+                                移除
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex flex-col items-center">
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                              </svg>
+                              <p className="mt-2 text-gray-500">拖放檔案或點擊上傳</p>
+                              <p className="text-xs text-gray-400 mt-1">支援 .safetensors, .ckpt, .pt, .bin, .zip 檔案</p>
+                            </div>
+                          )}
+                        </div>
+                        
+                        {/* 隱藏的檔案輸入元素 */}
+                        <input
+                          type="file"
+                          ref={modelFileInputRef}
+                          onChange={(e) => handleModelFileUpload(e.target.files)}
+                          accept=".safetensors,.ckpt,.pt,.bin,.zip"
+                          style={{ display: 'none' }}
+                        />
+                      </div>
+                      
+                      {/* 圖片上傳、瀏覽區 - 修改為可顯示預覽圖片 */}
+                      <div className="border-2 border-black p-4 rounded-md hover:shadow-md transition-shadow">
+                        <p className="text-center font-bold mb-2">圖片上傳、瀏覽區</p>
+                        <div 
+                          className={`border-2 border-dashed ${filePreview ? 'border-green-500' : 'border-gray-300'} rounded-md p-6 flex flex-col items-center cursor-pointer hover:bg-gray-50 min-h-[200px] relative`}
+                          onClick={() => modelImageInputRef.current?.click()}
+                          onDragOver={(e) => e.preventDefault()}
+                          onDrop={handleModelImageDrop}
+                        >
+                          {filePreview ? (
+                            <div className="flex flex-col items-center">
+                              <img 
+                                src={filePreview} 
+                                alt="預覽圖" 
+                                className="max-h-[150px] max-w-full mb-2 rounded-md" 
+                              />
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (filePreview) {
+                                    URL.revokeObjectURL(filePreview);
+                                  }
+                                  setFilePreview(null);
+                                }}
+                                className="mt-2 px-2 py-1 bg-red-50 text-red-600 text-sm rounded hover:bg-red-100 transition-colors"
+                              >
+                                移除圖片
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex flex-col items-center">
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                              </svg>
+                              <p className="mt-2 text-gray-500">拖放圖片或點擊上傳</p>
+                              <p className="text-xs text-gray-400 mt-1">支援常見圖片格式</p>
+                            </div>
+                          )}
+                        </div>
+                        
+                        {/* 隱藏的圖片輸入元素 */}
+                        <input
+                          type="file"
+                          ref={modelImageInputRef}
+                          onChange={(e) => handleModelImageUpload(e.target.files)}
+                          accept="image/*"
+                          style={{ display: 'none' }}
+                        />
+                      </div>
+
+                      {/* 錯誤或成功訊息顯示 */}
+                      {uploadMessage && (
+                        <div className={`mt-2 p-3 rounded-md ${
+                          uploadMessage.type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                        }`}>
+                          {uploadMessage.message}
+                        </div>
+                      )}
+                    </div>
+                    
+                    {/* 右側內容 - 根據當前選擇的模型類型顯示不同的表單內容 */}
+                    <div className="w-full md:w-1/3 flex flex-col">
+                      {/* 主要模型選項 - 加上選取效果 */}
+                      <div className="flex gap-4 mb-4">
+                        <button 
+                          className={`border-2 ${modelType === "CUSTOM MODEL" ? "border-blue-500 bg-blue-50" : "border-black"} p-3 text-center hover:bg-gray-100 hover:shadow-md hover:translate-y-[-2px] rounded-md flex-1 transition-all`}
+                          onClick={() => setModelType("CUSTOM MODEL")}
+                        >
+                          CUSTOM MODEL
+                        </button>
+                        <button 
+                          className={`border-2 ${modelType === "LORA" ? "border-blue-500 bg-blue-50" : "border-black"} p-3 text-center hover:bg-gray-100 hover:shadow-md hover:translate-y-[-2px] rounded-md flex-1 transition-all`}
+                          onClick={() => setModelType("LORA")}
+                        >
+                          LORA
+                        </button>
+                      </div>
+                      
+                      {/* SD 版本選擇按鈕 - 加上選取效果 */}
+                      <div className="border-2 border-black p-4 rounded-md mb-4 hover:shadow-md transition-shadow">
+                        <p className="font-bold mb-2">模型類型:</p>
+                        <div className="grid grid-cols-2 gap-2 mb-2">
+                          <button 
+                            className={`p-2 text-center text-sm rounded-md transition-colors ${
+                              sdVersion === "sd15" ? 'bg-blue-500 text-white' : 'bg-gray-100 hover:bg-gray-200'
+                            }`}
+                            onClick={() => setSdVersion("sd15")}
+                            disabled={isModelUploading}
+                          >
+                            SD 1.5
+                          </button>
+                          <button 
+                            className={`p-2 text-center text-sm rounded-md transition-colors ${
+                              sdVersion === "sd21" ? 'bg-blue-500 text-white' : 'bg-gray-100 hover:bg-gray-200'
+                            }`}
+                            onClick={() => setSdVersion("sd21")}
+                            disabled={isModelUploading}
+                          >
+                            SD 2.1
+                          </button>
+                          <button 
+                            className={`p-2 text-center text-sm rounded-md transition-colors ${
+                              sdVersion === "sdxl" ? 'bg-blue-500 text-white' : 'bg-gray-100 hover:bg-gray-200'
+                            }`}
+                            onClick={() => setSdVersion("sdxl")}
+                            disabled={isModelUploading}
+                          >
+                            SD XL
+                          </button>
+                          <button 
+                            className={`p-2 text-center text-sm rounded-md transition-colors ${
+                              sdVersion === "sd3-m" ? 'bg-blue-500 text-white' : 'bg-gray-100 hover:bg-gray-200'
+                            }`}
+                            onClick={() => setSdVersion("sd3-m")}
+                            disabled={isModelUploading}
+                          >
+                            SD 3 - M
+                          </button>
+                          <button 
+                            className={`p-2 text-center text-sm rounded-md transition-colors ${
+                              sdVersion === "sd35-m" ? 'bg-blue-500 text-white' : 'bg-gray-100 hover:bg-gray-200'
+                            }`}
+                            onClick={() => setSdVersion("sd35-m")}
+                            disabled={isModelUploading}
+                          >
+                            SD 3.5 - M
+                          </button>
+                          <button 
+                            className={`p-2 text-center text-sm rounded-md transition-colors ${
+                              sdVersion === "sd35-l" ? 'bg-blue-500 text-white' : 'bg-gray-100 hover:bg-gray-200'
+                            }`}
+                            onClick={() => setSdVersion("sd35-l")}
+                            disabled={isModelUploading}
+                          >
+                            SD 3.5 - L
+                          </button>
+                        </div>
+                      </div>
+                      
+                      {/* 描述 - 加上可輸入文字功能 */}
+                      <div>
+                        <p className="font-bold mb-2">DESCRIPTION:</p>
+                        <textarea
+                          className="border-2 border-black rounded-md p-2 w-full h-20 hover:border-blue-400 hover:shadow-sm transition-all focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                          value={modelDescription}
+                          onChange={(e) => setModelDescription(e.target.value)}
+                          placeholder="輸入模型描述..."
+                        ></textarea>
+                      </div>
+                      
+                      {/* 或文字顯示 */}
+                      <div className="text-center my-4">
+                        <p>OR</p>
+                      </div>
+                      
+                      {/* 檔案路徑 - 改為可輸入網址的文字框 */}
+                      <div>
+                        <p className="font-bold mb-2">FILE PATH:</p>
+                        <input
+                          type="text"
+                          className="border-2 border-black rounded-md p-2 h-10 w-full hover:border-blue-400 hover:shadow-sm transition-all focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                          placeholder="輸入模型網址(當前僅支援civitai)..."
+                          value={modelUrl}
+                          onChange={(e) => setModelUrl(e.target.value)}
+                        />
+                      </div>
+                      
+                      {/* UPLOAD 按鈕 - 修改為呼叫上傳函數並顯示上傳中狀態 */}
+                      <div className="flex justify-end mt-auto pt-4">
+                        <button 
+                          className={`border-2 border-black p-3 text-center rounded-md transition-all ${
+                            isModelUploading 
+                              ? 'opacity-70 cursor-not-allowed' 
+                              : 'hover:bg-gray-100 hover:shadow-md hover:translate-y-[-2px]'
+                          }`}
+                          onClick={uploadModelOrLora}
+                          disabled={isModelUploading}
+                        >
+                          {isModelUploading ? (
+                            <div className="flex items-center justify-center">
+                              <svg className="animate-spin -ml-1 mr-2 h-5 w-5 text-black" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                              </svg>
+                              上傳中...
+                            </div>
+                          ) : (
+                            "UPLOAD"
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* 添加隱藏的檔案輸入元素 */}
+        <input
+          type="file"
+          id="file-upload-input"
+          ref={fileInputRef}
+          onChange={(e) => handleFileUpload(e.target.files)}
+          accept="image/*"
+          multiple
+          style={{ display: 'none' }}
+        />
+
+        {/* 添加隱藏的模型圖片輸入元素 */}
+        <input
+          type="file"
+          ref={modelImageInputRef}
+          onChange={(e) => handleModelImageUpload(e.target.files)}
+          accept="image/*"
+          style={{ display: 'none' }}
+        />
+      </>
     </div>
   );
 };

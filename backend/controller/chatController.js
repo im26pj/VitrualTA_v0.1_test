@@ -20,18 +20,8 @@ const { head } = require('../routes/api');
 
 // 修改 spawn_1 函數
 const spawn_1 = async function(prompt, userId, chat_id, lora_name, num_images, model_arg, webui_style_model_name) {
-  // 若 lora_name 不為空但不是絕對路徑，則转换為絕對路徑
-  if (lora_name && !path.isAbsolute(lora_name)) {
-    const loraPath = path.join(__dirname, '../stable-diffusion/loras/', lora_name);
-    lora_name = loraPath;
-  }
-  
-  // 新增: 若 webui_style_model_name 不為空但不是絕對路徑，轉換為絕對路徑
-  if (webui_style_model_name && !path.isAbsolute(webui_style_model_name)) {
-    const styleModelPath = path.join(__dirname, '../stable-diffusion/models/', webui_style_model_name);
-    webui_style_model_name = styleModelPath;
-  }
-  
+
+
   // 確保 num_images 是有效的數字
   num_images = num_images ? parseInt(num_images) : 1;
   
@@ -43,10 +33,19 @@ const spawn_1 = async function(prompt, userId, chat_id, lora_name, num_images, m
     debug(`使用 Python 路徑: ${pythonExecutable}`);
     debug(`參數: prompt="${prompt.substring(0, 50)}...", userId=${userId}, chat_id=${chat_id}, lora_name=${lora_name}, num_images=${num_images}, model_arg=${model_arg}, webui_style=${webui_style_model_name}`);
 
-    // 添加環境變數設定，與 spawn_3 保持一致
+    // 添加環境變數設定
+    const args = [scriptPath, prompt, userId, chat_id, lora_name, num_images];
+    if (webui_style_model_name) {
+      console.log("使用 webui_style_model_name:", webui_style_model_name);
+      args.push(webui_style_model_name);
+    } else {
+      console.log("未提供 webui_style_model_name，使用默認值:", model_arg);
+      args.push(model_arg);
+    }
+
     const pythonProcess = spawn(
       pythonExecutable,
-      [scriptPath, prompt, userId, chat_id, lora_name, num_images, model_arg, webui_style_model_name],
+      args,
       {
         env: { 
           ...process.env,
@@ -56,6 +55,7 @@ const spawn_1 = async function(prompt, userId, chat_id, lora_name, num_images, m
       }
     );
 
+
     let stdoutData = "";
     let stderrData = "";
 
@@ -64,7 +64,7 @@ const spawn_1 = async function(prompt, userId, chat_id, lora_name, num_images, m
       stdoutData += data.toString();
       debug(`[Info]Python 標準輸出: ${data.toString().trim()}`);
     });
-
+ 
     // 收集錯誤輸出
     pythonProcess.stderr.on('data', (data) => {
       stderrData += data.toString();
@@ -180,19 +180,28 @@ const spawn_1 = async function(prompt, userId, chat_id, lora_name, num_images, m
 };
 
 // 修改 spawn_3 函數
-const spawn_3 = async function(prompt, userId, chat_id, lora_name, num_images, model_arg, token) {
+const spawn_3 = async function(prompt, userId, chat_id, lora_name, num_images, model_arg, webui_style_model_name) {
   return new Promise((resolve, reject) => {
     const scriptPath = path.join(__dirname, '../stable-diffusion/diffusion_3.5.py');
     const pythonExecutable = path.join(__dirname, '../stable-diffusion/.graphenv/Scripts/python.exe');
-    
+    console.log("webui_style_model_name:", webui_style_model_name);
     debug(`執行 Python 腳本: ${scriptPath}`);
     debug(`使用 Python 路徑: ${pythonExecutable}`);
     debug(`參數: prompt="${prompt.substring(0, 50)}...", userId=${userId}, chat_id=${chat_id}, lora_name=${lora_name}, num_images=${num_images}, model_arg=${model_arg}`);
 
+    const args = [scriptPath, prompt, userId, chat_id, lora_name, num_images];
+    if (webui_style_model_name) {
+      console.log("使用 webui_style_model_name:", webui_style_model_name);
+      args.push(webui_style_model_name);
+    } else {
+      console.log("未提供 webui_style_model_name，使用默認值:", model_arg);
+      args.push(model_arg);
+    }
+
     // 添加環境變數設定
     const pythonProcess = spawn(
       pythonExecutable,
-      [scriptPath, prompt, userId, chat_id, lora_name, num_images, model_arg, token],
+      args,
       {
         env: { 
           ...process.env,
@@ -201,49 +210,123 @@ const spawn_3 = async function(prompt, userId, chat_id, lora_name, num_images, m
         }
       }
     );
-    
-    let outputData = '';
-    let errorData = '';
-    
+
+    let stdoutData = "";
+    let stderrData = "";
+
     // 收集標準輸出
     pythonProcess.stdout.on('data', (data) => {
-      outputData += data.toString();
+      stdoutData += data.toString();
+      debug(`[Info]Python 標準輸出: ${data.toString().trim()}`);
     });
-    
+ 
     // 收集錯誤輸出
     pythonProcess.stderr.on('data', (data) => {
-      errorData += data.toString();
-      debug(`Python 腳本錯誤: ${data}`);
+      stderrData += data.toString();
+      debug(`[Warm]Python 輸出: ${data.toString().trim()}`);
     });
-    
+
+    pythonProcess.on('error', (error) => {
+      debug(`[Error]無法啟動 Python 進程: ${error.message}`);
+      reject(new Error(`無法啟動 Python 進程: ${error.message}`));
+    });
+
     // 腳本執行完畢後處理結果
-    pythonProcess.on('close', (code) => {
+    pythonProcess.on('exit', (code) => {
       if (code !== 0) {
-        debug(`Python 腳本執行失敗 (退出碼 ${code}): ${errorData}`);
-        reject(new Error(`圖片生成失敗: ${errorData}`));
+        debug(`[Error]Python 腳本執行失敗 (退出碼 ${code}): ${stderrData}`);
+        reject(new Error(`圖片生成失敗: ${stderrData}`));
         return;
       }
       
       try {
-        debug('Python 輸出原始內容:', outputData);
+        debug('[Info]Python 輸出原始內容:', stdoutData);
         
-        // 嘗試尋找並提取 JSON 對象
-        const jsonRegex = /{[\s\S]*}/;
-        const match = outputData.match(jsonRegex);
+        // 先尋找多圖片格式 {"_ids": [...]} 的 JSON 字串
+        const idsJsonRegex = /\{\s*"_ids"\s*:\s*\[\s*"[^"]+(?:",\s*"[^"]+)*"\s*\]\s*\}/g;
+        const idsMatch = stdoutData.match(idsJsonRegex);
         
-        if (match) {
-          const jsonStr = match[0];
-          debug('提取的 JSON 字符串:', jsonStr);
+        if (idsMatch && idsMatch.length > 0) {
+          const jsonStr = idsMatch[idsMatch.length - 1]; // 取最後一個匹配
+          debug('提取的多圖片 JSON 字符串:', jsonStr);
           
-          // 解析 JSON
-          const result = JSON.parse(jsonStr);
-          resolve(result);
-        } else {
-          debug('無法在輸出中找到 JSON 對象');
-          reject(new Error('無法在 Python 輸出中找到有效的 JSON 對象'));
+          try {
+            // 解析 JSON
+            const result = JSON.parse(jsonStr);
+            debug('成功解析多圖片 JSON:', result);
+            resolve(result);
+            return;
+          } catch (parseError) {
+            debug('多圖片 JSON 解析錯誤:', parseError);
+            // 繼續嘗試其他提取方法
+          }
         }
+        
+        // 如果沒找到多圖片格式，再尋找單圖片格式 {"_id": "xxx"}
+        const idJsonRegex = /\{\s*"_id"\s*:\s*"[^"]+"\s*\}/g;
+        const idMatch = stdoutData.match(idJsonRegex);
+        
+        if (idMatch && idMatch.length > 0) {
+          const jsonStr = idMatch[idMatch.length - 1]; // 取最後一個匹配
+          debug('提取的單圖片 JSON 字符串:', jsonStr);
+          
+          try {
+            // 解析 JSON
+            const result = JSON.parse(jsonStr);
+            debug('成功解析單圖片 JSON:', result);
+            resolve(result);
+            return;
+          } catch (parseError) {
+            debug('單圖片 JSON 解析錯誤:', parseError);
+            // 繼續嘗試其他提取方法
+          }
+        }
+        
+        // 備用方法：尋找最後一個有效的 JSON 對象
+        const lastOpenBrace = stdoutData.lastIndexOf('{');
+        const lastCloseBrace = stdoutData.lastIndexOf('}');
+        
+        if (lastOpenBrace !== -1 && lastCloseBrace !== -1 && lastOpenBrace < lastCloseBrace) {
+          try {
+            const jsonCandidate = stdoutData.substring(lastOpenBrace, lastCloseBrace + 1);
+            debug('備用方法提取的 JSON 候選字符串:', jsonCandidate);
+            
+            const result = JSON.parse(jsonCandidate);
+            debug('成功使用備用方法解析 JSON:', result);
+            resolve(result);
+            return;
+          } catch (parseError) {
+            debug('備用方法解析失敗:', parseError);
+            // 嘗試進一步處理
+          }
+        }
+        
+        // 最後嘗試：從輸出中找到 _id 或 _ids 部分並手動構建 JSON
+        const idsPattern = /"_ids"\s*:\s*\[\s*"([^"]+(?:",\s*"[^"]+)*)"\s*\]/;
+        const idsMatch2 = stdoutData.match(idsPattern);
+        
+        if (idsMatch2 && idsMatch2[1]) {
+          const fileIds = idsMatch2[1].split('","').map(id => id.trim());
+          debug('從輸出中提取的檔案 IDs:', fileIds);
+          resolve({ _ids: fileIds });
+          return;
+        }
+        
+        const idPattern = /"_id"\s*:\s*"([^"]+)"/;
+        const idMatch2 = stdoutData.match(idPattern);
+        
+        if (idMatch2 && idMatch2[1]) {
+          const fileId = idMatch2[1];
+          debug('從輸出中提取的檔案 ID:', fileId);
+          resolve({ _id: fileId });
+          return;
+        }
+        
+        debug('無法在輸出中找到有效的 JSON 對象或檔案 ID');
+        reject(new Error('無法在 Python 輸出中找到有效的 JSON 對象'));
+        
       } catch (err) {
-        debug('無法解析 Python 輸出:', outputData);
+        debug('無法解析 Python 輸出:', stdoutData);
         debug('解析錯誤:', err);
         reject(new Error(`解析圖片生成結果失敗: ${err.message}`));
       }
@@ -441,7 +524,7 @@ async function generateGraphInternal(content, userId, chat_id, graph_type, tunne
       debug(`生成圖片的優化提示 (${model}): ${fullResponse}`);
       try {
         // 調用 spawn_3 函數，它會執行 Python 腳本並返回包含圖片 ID 的結果
-        const imageResult = await spawn_3(fullResponse, userId, chat_id , lora_name , genpic_num , webui_style_model_name , token ="");
+        const imageResult = await spawn_3(fullResponse, userId, chat_id , lora_name , genpic_num , webui_style_model_name , webui_style_model_name);
         
         // 檢查生成結果
         if (imageResult && imageResult._id) {
@@ -654,6 +737,7 @@ exports.generateGraph = async (req, res) => {
 exports.chatWithOllama = async (req, res) => {
   const { conversationHistory, isVisitor, chat_id, isNewChat, img_64, img_id , model ,  lora_name , genpic_num , webui_style_model_name} = req.body;
   const authHeader = req.headers.authorization;
+  //console.log("loraid: ", lora_name , "modelid" , webui_style_model_name);
   let tunnel = "NEW";
   if (!conversationHistory || !Array.isArray(conversationHistory)) {
     return res.status(400).json({ success: false, message: '缺少對話歷史' });
@@ -1772,7 +1856,33 @@ exports.uploadLora = async (req, res) => {
           const originalFilename = loraFile.filename;
           const baseFilename = path.basename(originalFilename, path.extname(originalFilename));
           const fileExtension = path.extname(originalFilename);
-          
+          const modelType = req.body.modelType || urlLoraData?.data?.baseModel || 'unknown'; // 例如: sd15, sd21, sdxl, sd35...
+
+          if(urlLoraData?.data?.baseModel){
+          const baseModel = urlLoraData.data.baseModel.toUpperCase();
+          if(baseModel.includes("SD") && baseModel.includes("1")){
+            urlLoraData.data.baseModel = "sd15";
+          }
+          else if(baseModel.includes("SD") && baseModel.includes("2")){
+            urlLoraData.data.baseModel = "sd21";
+          }
+          else if(baseModel.includes("SD") && baseModel.includes("XL")){
+            urlLoraData.data.baseModel = "sdxl";
+          }
+          else if(baseModel.includes("SD") && baseModel.includes("3") && baseModel.includes("L")){
+            urlLoraData.data.baseModel = "sd35-l";
+          }
+          else if(baseModel.includes("SD") && baseModel.includes("3") && baseModel.includes("M")){
+            urlLoraData.data.baseModel = "sd35-m";
+          }
+          else if(baseModel.includes("SD") && baseModel.includes("3")){
+            urlLoraData.data.baseModel = "sd3-m";
+          }
+          else{
+            urlLoraData.data.baseModel = "default";
+          }
+        }
+
           // 上傳新檔案到 GridFS
           const uploadStream = bucket.openUploadStream(originalFilename, {
             metadata: {
@@ -1780,6 +1890,7 @@ exports.uploadLora = async (req, res) => {
               contentType: 'application/octet-stream',
               uploadDate: new Date(),
               fileType: 'lora',
+              modelType: urlLoraData.data.baseModel || 'unknown',
               baseFilename: baseFilename,
               description: req.body.description || urlLoraData?.data?.description || '',
               loraImages: loraImageIds, // 儲存所有圖片ID陣列
@@ -2133,6 +2244,33 @@ exports.uploadModel = async (req, res) => {
         } else {
           return res.status(400).json({ success: false, message: '未提供有效的模型檔案' });
         }
+
+        if(urlmodeldata?.data?.baseModel){
+          const baseModel = urlmodeldata.data.baseModel.toUpperCase();
+
+          if(baseModel.includes("SD") && baseModel.includes("2")){
+            urlmodeldata.data.baseModel = "sd21";
+          }
+          else if(baseModel.includes("SD") && baseModel.includes("XL")){
+            urlmodeldata.data.baseModel = "sdxl";
+          }
+          else if(baseModel.includes("SD") && baseModel.includes("1")){
+            urlmodeldata.data.baseModel = "sd15";
+          }
+          else if(baseModel.includes("SD") && baseModel.includes("3") && baseModel.includes("L")){
+            urlmodeldata.data.baseModel = "sd35-l";
+          }
+          else if(baseModel.includes("SD") && baseModel.includes("3") && baseModel.includes("M")){
+            urlmodeldata.data.baseModel = "sd35-m";
+          }
+          else if(baseModel.includes("SD") && baseModel.includes("3")){
+            urlmodeldata.data.baseModel = "sd3-m";
+          }
+          else{
+            urlmodeldata.data.baseModel = "default";
+          }
+        }
+       
         
         const baseFilename = path.basename(originalFilename, path.extname(originalFilename)) || urlmodeldata?.data?.files?.name || 'unknown';
         const modelType = req.body.modelType || urlmodeldata?.data?.baseModel || 'unknown'; // 例如: sd15, sd21, sdxl, sd35...
