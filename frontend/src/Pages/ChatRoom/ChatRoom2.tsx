@@ -1921,7 +1921,22 @@ export const ChatRoom = (): JSX.Element => {
                           ×
                         </button>
                       )}
+
                     </div>
+                      <button
+                        onClick={() => {
+                          if (!isLoading && question.trim()) {
+                            handleSendMessage();
+                          }
+                        }}
+                        className={sendButtonStyle}
+                        >
+                        <img
+                          className={sendButtonImageStyle}
+                          src="/pic/polygon-3-2.svg"
+                          alt="Send"
+                        />
+                      </button>
                   </div>
 
                   {/* 圖片生成模型與數量控制放在同一列 */}
