@@ -1796,7 +1796,7 @@ export const ChatRoom = (): JSX.Element => {
           flex-1 transition-all duration-300 ease-in-out pt-[30px]  /* 降低頂部間距 */
           ${isSidebarOpen ? 'ml-[300px]' : 'ml-0'}
         `}>
-          <div className={`relative w-full max-w-[1100px] mx-auto h-[calc(100vh-150px)] ${  /* 增加減去的高度 */
+          <div className={`relative w-full max-w-[1100px] mx-auto h-[calc(100vh-200px)] sm:h-[calc(100vh-140px)] ${ /* 增加減去的高度 */
             showVtuberImage ? "flex flex-col md:flex-row gap-4 md:gap-8" : "flex flex-col items-center w-full"
           }`}>
             {showVtuberImage && (
@@ -2061,7 +2061,7 @@ export const ChatRoom = (): JSX.Element => {
         {/* Picture Settings Modal */}
         {showPictureSettings && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 animate-fade-in">
-            <div className="bg-white rounded-lg shadow-xl p-6 max-w-4xl w-[90%] max-h-[90vh] flex flex-col md:flex-row gap-6 relative">
+            <div className="bg-white rounded-lg shadow-xl p-6 max-w-4xl w-[90%] max-h-[90vh] flex flex-col md:flex-row gap-6 relative overflow-y-auto">
               {/* 關閉按鈕 - 絕對定位並添加背景 */}
               <button 
                 onClick={() => {
@@ -2080,7 +2080,7 @@ export const ChatRoom = (): JSX.Element => {
                 // 原始的浮動視窗內容
                 <>
                   {/* 左側圖片展示區 - 加上圓角與 hover 效果 */}
-                  <div className="flex-1 border-2 border-black relative rounded-md hover:shadow-md transition-shadow">
+                  <div className="flex-1 border-2 border-black relative rounded-md hover:shadow-md transition-shadow ">
                     <div className="aspect-square w-full flex items-center justify-center bg-gray-50">
                       {isLoadingModels ? (
                         <div className="flex flex-col items-center justify-center">
