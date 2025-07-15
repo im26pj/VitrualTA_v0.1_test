@@ -1589,6 +1589,7 @@ exports.uploadLora = async (req, res) => {
       await handleUpload();
       
       let urlLoraData = '';
+      let targeturl = '';
       let loraImageIds = []; // 用於儲存下載的圖片ID
       let loraBuffer = null; // 用於儲存從URL下載的LoRA檔案
       let loraFilename = ''; // 用於儲存從URL下載的LoRA檔案名稱
@@ -1604,7 +1605,17 @@ exports.uploadLora = async (req, res) => {
         if (req.body.filePath) {
           const filePath = req.body.filePath;
           const fileurl = new URL(filePath);
-          const loraVersionId = fileurl.searchParams.get('modelVersionId');
+          let loraVersionId = fileurl.searchParams.get('modelVersionId');
+          
+          if (!loraVersionId) {
+            const target = fileurl.pathname.match(/models\/(\d+)/);
+            if(target){
+              const targetid = target[1];
+              targeturl = await axios.get('https://civitai.com/api/v1/models/'+ targetid);
+              loraVersionId = targeturl.data.modelVersions?.[0]?.id
+            }
+          }
+
           debug('LoRA 檔案資訊取得中: https://civitai.com/api/v1/model-versions/' + loraVersionId);
           urlLoraData = await axios.get('https://civitai.com/api/v1/model-versions/' + loraVersionId);
           debug('LoRA 資訊獲取成功，包含圖片數量:', urlLoraData.data.images?.length || 0);
@@ -1994,6 +2005,7 @@ exports.uploadModel = async (req, res) => {
       await handleUpload();
     
       let urlmodeldata = '';
+      let targeturl = '';
       let modelImageIds = []; // 用於儲存下載的圖片ID
       let modelBuffer = null; // 用於儲存從URL下載的模型檔案
       let modelFilename = ''; // 用於儲存從URL下載的模型檔案名稱
@@ -2009,7 +2021,16 @@ exports.uploadModel = async (req, res) => {
         if (req.body.filePath) {
           const filePath = req.body.filePath;
           const fileurl = new URL(filePath);
-          const modelVersionId = fileurl.searchParams.get('modelVersionId');
+          let modelVersionId = fileurl.searchParams.get('modelVersionId');
+
+          if (!modelVersionId) {
+            const target = fileurl.pathname.match(/models\/(\d+)/);
+            if(target){
+              const targetid = target[1];
+              targeturl = await axios.get('https://civitai.com/api/v1/models/'+ targetid);
+              modelVersionId = targeturl.data.modelVersions?.[0]?.id
+            }
+          }
           debug('模型檔案資訊取得中: https://civitai.com/api/v1/model-versions/' + modelVersionId);
           urlmodeldata = await axios.get('https://civitai.com/api/v1/model-versions/' + modelVersionId);
           debug('模型資訊獲取成功，包含圖片數量:', urlmodeldata.data.images?.length || 0);

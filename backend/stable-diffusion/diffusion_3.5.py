@@ -20,7 +20,7 @@ try:
   from dotenv import load_dotenv
   load_dotenv()
 except ImportError:
-  print("[INFO] python-dotenv not installed, skipping .env loading")
+  print("[INFO] python-dotenv not installed, skipping .env loading", file=sys.stdout)
 
 # 判斷是否為 Custom Diffusion 權重 (使用安全方式載入檔案)
 def is_custom_diffusion_lora(lora_path):
@@ -33,7 +33,7 @@ def is_custom_diffusion_lora(lora_path):
             if "lora_te_text_model_encoder" in key or "lora_unet" in key:
                 return True
     except Exception as e:
-        print(f"[WARN] 無法分析權重檔案: {e}")
+        print(f"[WARN] 無法分析權重檔案: {e}", file=sys.stderr)
     return False
 
 # 判斷是否為 WebUI/Kohya 權重 (使用安全方式載入檔案)
@@ -63,7 +63,7 @@ def is_webui_lora(lora_path):
                 if pattern in key:
                     return True
     except Exception as e:
-        print(f"[WARN] 無法分析權重檔案: {e}")
+        print(f"[WARN] 無法分析權重檔案: {e}", file=sys.stderr)
     return False
 
 # SD 3.5 LoRA 轉換函數
@@ -71,7 +71,7 @@ def convert_lora_for_sd35(lora_path, out_dir):
     try:
         os.makedirs(out_dir, exist_ok=True)
         
-        print(f"[INFO] 開始轉換 LoRA 為 SD 3.5 格式: {lora_path}")
+        print(f"[INFO] 開始轉換 LoRA 為 SD 3.5 格式: {lora_path}", file=sys.stdout)
         
         # 嘗試使用最新的轉換工具
         try:
@@ -80,32 +80,32 @@ def convert_lora_for_sd35(lora_path, out_dir):
                 "--lora_pt_path", lora_path,
                 "--dump_path", out_dir
             ], check=True, stdout=PIPE, stderr=PIPE)
-            print(f"[INFO] 成功轉換 LoRA 為 SD 3.5 格式: {out_dir}")
+            print(f"[INFO] 成功轉換 LoRA 為 SD 3.5 格式: {out_dir}", file=sys.stdout)
             return True
         except Exception as e:
-            print(f"[WARN] diffusers 轉換工具失敗: {e}")
+            print(f"[WARN] diffusers 轉換工具失敗: {e}", file=sys.stderr)
             
             # 備用方案：直接複製檔案
             import shutil
             dst_path = os.path.join(out_dir, "pytorch_lora_weights.safetensors")
             shutil.copy2(lora_path, dst_path)
-            print(f"[INFO] 已複製 LoRA 權重至 {dst_path} (備用方案)")
+            print(f"[INFO] 已複製 LoRA 權重至 {dst_path} (備用方案)", file=sys.stdout)
             return True
     except Exception as e:
-        print(f"[ERROR] 轉換 SD 3.5 LoRA 失敗: {e}")
+        print(f"[ERROR] 轉換 SD 3.5 LoRA 失敗: {e}", file=sys.stderr)
         return False
 
 # 使用 PEFT 庫載入 LoRA for SD 3.5
 def load_lora_with_peft_sd35(pipe, lora_path, scale=0.75):
     try:
-        print(f"[INFO] 嘗試使用 PEFT 載入 SD 3.5 LoRA: {lora_path}")
+        print(f"[INFO] 嘗試使用 PEFT 載入 SD 3.5 LoRA: {lora_path}", file=sys.stdout)
         
         # 確保有必要的套件
         try:
             import peft
             from peft import PeftModel
         except ImportError:
-            print(f"[INFO] 安裝 peft...")
+            print(f"[INFO] 安裝 peft...", file=sys.stdout)
             run([sys.executable, "-m", "pip", "install", "peft"], check=True)
             import peft
             from peft import PeftModel
@@ -129,29 +129,29 @@ def load_lora_with_peft_sd35(pipe, lora_path, scale=0.75):
         if hasattr(pipe, "text_encoder"):
             pipe.text_encoder.set_adapter_scale(scale)
         
-        print(f"[INFO] 成功使用 PEFT 載入 SD 3.5 LoRA")
+        print(f"[INFO] 成功使用 PEFT 載入 SD 3.5 LoRA", file=sys.stdout)
         return True
     except Exception as e:
-        print(f"[ERROR] PEFT 載入 SD 3.5 LoRA 失敗: {e}")
+        print(f"[ERROR] PEFT 載入 SD 3.5 LoRA 失敗: {e}", file=sys.stderr)
         return False
 
 # 使用原生方式載入 LoRA for SD 3.5
 def apply_lora_weights_sd35(pipe, lora_path, scale=0.75):
     try:
-        print(f"[INFO] 使用原生方式載入 SD 3.5 LoRA: {lora_path}")
+        print(f"[INFO] 使用原生方式載入 SD 3.5 LoRA: {lora_path}", file=sys.stdout)
         
         # 檢查 pipe 類型，針對 SD 3.5 可能需要特殊處理
         pipe_class = pipe.__class__.__name__
-        print(f"[INFO] 模型類型: {pipe_class}")
+        print(f"[INFO] 模型類型: {pipe_class}", file=sys.stdout)
         
         # SD 3.5 原生 API
         try:
             pipe.load_lora_weights(lora_path, adapter_name="default")
             pipe.set_adapters(["default"], adapter_weights=[scale])
-            print(f"[INFO] 成功使用原生 API 載入 SD 3.5 LoRA: {lora_path}")
+            print(f"[INFO] 成功使用原生 API 載入 SD 3.5 LoRA: {lora_path}", file=sys.stdout)
             return True
         except Exception as e1:
-            print(f"[WARN] SD 3.5 原生 API 載入失敗: {e1}")
+            print(f"[WARN] SD 3.5 原生 API 載入失敗: {e1}", file=sys.stderr)
             
             # 嘗試使用其他方法
             try:
@@ -161,21 +161,21 @@ def apply_lora_weights_sd35(pipe, lora_path, scale=0.75):
                 
                 if convert_lora_for_sd35(lora_path, temp_dir):
                     pipe.load_lora_weights(temp_dir)
-                    print(f"[INFO] 成功使用轉換後載入 SD 3.5 LoRA")
+                    print(f"[INFO] 成功使用轉換後載入 SD 3.5 LoRA", file=sys.stdout)
                     return True
             except Exception as e2:
-                print(f"[WARN] SD 3.5 備用 API 載入失敗: {e2}")
+                print(f"[WARN] SD 3.5 備用 API 載入失敗: {e2}", file=sys.stderr)
                 
                 # 最後嘗試: 使用 PEFT 方法
                 return load_lora_with_peft_sd35(pipe, lora_path, scale)
     except Exception as e:
-        print(f"[ERROR] 所有 SD 3.5 LoRA 載入方法均失敗: {e}")
+        print(f"[ERROR] 所有 SD 3.5 LoRA 載入方法均失敗: {e}", file=sys.stderr)
         return False
 
 # SD 3.5 特定的 LoRA 調整方法
 def adjust_lora_for_sd35(pipe, lora_path, scale=0.75):
     try:
-        print(f"[INFO] 嘗試調整 LoRA 以適應 SD 3.5: {lora_path}")
+        print(f"[INFO] 嘗試調整 LoRA 以適應 SD 3.5: {lora_path}", file=sys.stdout)
         
         # 載入 LoRA 權重
         state_dict = load_file(lora_path)
@@ -185,11 +185,11 @@ def adjust_lora_for_sd35(pipe, lora_path, scale=0.75):
         sd35_compatible = any("transformer_" in k for k in keys) or any("text_encoder_" in k for k in keys)
         
         if sd35_compatible:
-            print(f"[INFO] 識別為可能與 SD 3.5 相容的 LoRA")
+            print(f"[INFO] 識別為可能與 SD 3.5 相容的 LoRA", file=sys.stdout)
             # 使用原生方法嘗試載入
             return apply_lora_weights_sd35(pipe, lora_path, scale)
         else:
-            print(f"[INFO] LoRA 需要調整以適應 SD 3.5")
+            print(f"[INFO] LoRA 需要調整以適應 SD 3.5", file=sys.stdout)
             
             # 嘗試轉換和調整 LoRA 權重
             temp_dir = os.path.join(os.path.dirname(lora_path), "temp_adjusted_sd35")
@@ -198,22 +198,22 @@ def adjust_lora_for_sd35(pipe, lora_path, scale=0.75):
             if convert_lora_for_sd35(lora_path, temp_dir):
                 try:
                     pipe.load_lora_weights(temp_dir)
-                    print(f"[INFO] 成功載入調整後的 SD 3.5 LoRA")
+                    print(f"[INFO] 成功載入調整後的 SD 3.5 LoRA", file=sys.stdout)
                     return True
                 except Exception as e:
-                    print(f"[WARN] 載入調整後的 LoRA 失敗: {e}")
+                    print(f"[WARN] 載入調整後的 LoRA 失敗: {e}", file=sys.stderr)
                     
                     # 最後嘗試: 使用 PEFT 方法
                     return load_lora_with_peft_sd35(pipe, lora_path, scale)
             
             return False
     except Exception as e:
-        print(f"[ERROR] 調整 LoRA 失敗: {e}")
+        print(f"[ERROR] 調整 LoRA 失敗: {e}", file=sys.stderr)
         return False
 
 def load_model_sd35(model_path, user_token=None):
     """智能載入 SD 3.5 模型，包含 4 位元量化及 CPU offload"""
-    print(f"[INFO] 嘗試載入 SD 3.5 模型: {model_path}")
+    print(f"[INFO] 嘗試載入 SD 3.5 模型: {model_path}", file=sys.stdout)
     
     # 處理預設模型名稱
     model_name_map = {
@@ -226,17 +226,17 @@ def load_model_sd35(model_path, user_token=None):
     
     if model_path in model_name_map:
         model_path = model_name_map[model_path]
-        print(f"[INFO] 使用預設 SD 3.5 模型: {model_path}")
+        print(f"[INFO] 使用預設 SD 3.5 模型: {model_path}", file=sys.stdout)
     
     # 如果沒有提供 user_token，則使用環境變量中的預設值
     token = user_token or os.getenv("DEFAULT_USER_TOKEN")
     if token:
-        print(f"[INFO] 使用 Hugging Face 授權令牌")
+        print(f"[INFO] 使用 Hugging Face 授權令牌", file=sys.stdout)
     else:
-        print(f"[WARN] 未找到 Hugging Face 授權令牌，可能無法訪問需要授權的模型")
+        print(f"[WARN] 未找到 Hugging Face 授權令牌，可能無法訪問需要授權的模型", file=sys.stdout)
     
     try:
-        print(f"[INFO] 以 4 位元量化載入 SD 3.5 模型")
+        print(f"[INFO] 以 4 位元量化載入 SD 3.5 模型", file=sys.stdout)
         
         # 載入必要的庫
         try:
@@ -244,7 +244,7 @@ def load_model_sd35(model_path, user_token=None):
             from diffusers import StableDiffusion3Pipeline
             import torch
         except ImportError as e:
-            print(f"[INFO] 安裝必要的庫: {e}")
+            print(f"[INFO] 安裝必要的庫: {e}", file=sys.stdout)
             run([sys.executable, "-m", "pip", "install", "--upgrade", "diffusers", "transformers", "accelerate", "bitsandbytes"], check=True)
             from diffusers import BitsAndBytesConfig, SD3Transformer2DModel
             from diffusers import StableDiffusion3Pipeline
@@ -258,7 +258,7 @@ def load_model_sd35(model_path, user_token=None):
         )
         
         # 先載入並量化 transformer 模型
-        print(f"[INFO] 載入並量化 transformer 模型")
+        print(f"[INFO] 載入並量化 transformer 模型", file=sys.stdout)
         model_nf4 = SD3Transformer2DModel.from_pretrained(
             model_path,
             subfolder="transformer",
@@ -268,7 +268,7 @@ def load_model_sd35(model_path, user_token=None):
         )
         
         # 載入完整管道，使用量化後的 transformer
-        print(f"[INFO] 載入完整 pipeline，使用量化後的 transformer")
+        print(f"[INFO] 載入完整 pipeline，使用量化後的 transformer", file=sys.stdout)
         pipe = StableDiffusion3Pipeline.from_pretrained(
             model_path, 
             transformer=model_nf4,
@@ -277,14 +277,14 @@ def load_model_sd35(model_path, user_token=None):
         )
         
         # 啟用 CPU offload 以節省 VRAM
-        print(f"[INFO] 啟用模型 CPU offload")
+        print(f"[INFO] 啟用模型 CPU offload", file=sys.stdout)
         pipe.enable_model_cpu_offload()
         
         return pipe
         
     except Exception as e:
-        print(f"[ERROR] 4 位元量化載入失敗: {e}")
-        print(f"[INFO] 嘗試標準方式載入...")
+        print(f"[ERROR] 4 位元量化載入失敗: {e}", file=sys.stderr)
+        print(f"[INFO] 嘗試標準方式載入...", file=sys.stdout)
         
         try:
             # 嘗試標準載入方式 (無量化)
@@ -296,8 +296,8 @@ def load_model_sd35(model_path, user_token=None):
             ).to("cuda")
             return pipe
         except Exception as e2:
-            print(f"[ERROR] 標準載入方式失敗: {e2}")
-            print(f"[INFO] 嘗試回退到 SD 3.5-m 模型...")
+            print(f"[ERROR] 標準載入方式失敗: {e2}", file=sys.stderr)
+            print(f"[INFO] 嘗試回退到 SD 3.5-m 模型...", file=sys.stdout)
             
             try:
                 from diffusers import BitsAndBytesConfig, StableDiffusion3Pipeline
@@ -321,11 +321,11 @@ def load_model_sd35(model_path, user_token=None):
                 # 啟用 CPU offload 以節省 VRAM
                 pipe.enable_model_cpu_offload()
                 
-                print(f"[INFO] 成功回退載入 SD 3.5-m 模型")
+                print(f"[INFO] 成功回退載入 SD 3.5-m 模型", file=sys.stdout)
                 return pipe
                 
             except Exception as e3:
-                print(f"[ERROR] 回退載入失敗: {e3}")
+                print(f"[ERROR] 回退載入失敗: {e3}", file=sys.stderr)
                 # 最終嘗試：無量化的基本載入
                 return DiffusionPipeline.from_pretrained(
                     "stabilityai/stable-diffusion-3.5-medium",
@@ -340,7 +340,7 @@ def get_file_from_gridfs(file_name, collection_name, temp_dir=None):
         
         os.makedirs(temp_dir, exist_ok=True)
         
-        print(f"[INFO] 從 GridFS {collection_name} 獲取檔案: {file_name}")
+        print(f"[INFO] 從 GridFS {collection_name} 獲取檔案: {file_name}", file=sys.stdout)
         
         # 連接 MongoDB
         mongo_uri = os.getenv("vtadb", "mongodb://localhost:27017")
@@ -359,16 +359,16 @@ def get_file_from_gridfs(file_name, collection_name, temp_dir=None):
                 if ObjectId.is_valid(file_name):
                     query = {"_id": ObjectId(file_name)}
                     if not fs.exists(query):
-                        print(f"[ERROR] 在 {collection_name} 中找不到檔案 (ID): {file_name}")
+                        print(f"[ERROR] 在 {collection_name} 中找不到檔案 (ID): {file_name}", file=sys.stderr)
                         return None
             except Exception as e:
-                print(f"[ERROR] 檔案查詢失敗: {e}")
+                print(f"[ERROR] 檔案查詢失敗: {e}", file=sys.stderr)
                 return None
         
         # 獲取文件
         grid_file = fs.find_one(query)
         if grid_file is None:
-            print(f"[ERROR] 在 {collection_name} 中找不到檔案: {file_name}")
+            print(f"[ERROR] 在 {collection_name} 中找不到檔案: {file_name}", file=sys.stderr)
             return None
         
         # 保存到臨時文件
@@ -384,20 +384,20 @@ def get_file_from_gridfs(file_name, collection_name, temp_dir=None):
         with open(temp_file_path, 'wb') as f:
             f.write(grid_file.read())
         
-        print(f"[INFO] 檔案已保存到臨時位置: {temp_file_path}")
+        print(f"[INFO] 檔案已保存到臨時位置: {temp_file_path}", file=sys.stdout)
         
         # 關閉 MongoDB 連接
         client.close()
         
         return temp_file_path
     except Exception as e:
-        print(f"[ERROR] 從 GridFS 獲取檔案失敗: {e}")
+        print(f"[ERROR] 從 GridFS 獲取檔案失敗: {e}", file=sys.stderr)
         return None
 
 # 修改現有的 main 函數來使用 GridFS
 def main():
     if len(sys.argv) < 4:
-        print(json.dumps({"error": "需要 prompt, user_id, chat_id 三个參數"}))
+        print(json.dumps({"error": "需要 prompt, user_id, chat_id 三个參數"}), file=sys.stderr)
         sys.exit(1)
 
     prompt, userid, chat_id = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -411,13 +411,13 @@ def main():
             # 限制最大生成數量，避免資源耗盡
             num_images = min(max(1, num_images), 4)  # SD 3.5 資源需求較大，限制最多4張
         except ValueError:
-            print(f"[WARN] 無效的圖片數量參數: {sys.argv[5]}，使用默認值 1")
+            print(f"[WARN] 無效的圖片數量參數: {sys.argv[5]}，使用默認值 1", file=sys.stderr)
             num_images = 1
     
     # 新增參數: 指定要使用的模型
     model_arg = sys.argv[6] if len(sys.argv) > 6 else "default"
     
-    print(f"[INFO] 將生成 {num_images} 張圖片，指定模型: {model_arg}")
+    print(f"[INFO] 將生成 {num_images} 張圖片，指定模型: {model_arg}", file=sys.stdout)
     
     # 檢查模型是否是自定義模型（webui-style-model-name）
     custom_model_path = None
@@ -426,10 +426,10 @@ def main():
         custom_model_path = get_file_from_gridfs(model_arg, "models", 
                                               os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp_models"))
         if custom_model_path:
-            print(f"[INFO] 已從 GridFS 獲取自定義模型: {custom_model_path}")
+            print(f"[INFO] 已從 GridFS 獲取自定義模型: {custom_model_path}", file=sys.stdout)
             model_arg = custom_model_path
         else:
-            print(f"[WARN] 找不到自定義模型 {model_arg}，將使用默認模型")
+            print(f"[WARN] 找不到自定義模型 {model_arg}，將使用默認模型", file=sys.stderr)
             model_arg = "default"
     
     # 載入 SD 3.5 模型
@@ -447,7 +447,7 @@ def main():
                 weight_file = get_file_from_gridfs(f"{lora_name}.safetensors", "loras", lora_temp_dir)
         
         if not weight_file:
-            print(json.dumps({"error": f"LoRA 文件不存在於 GridFS: {lora_name}"}))
+            print(json.dumps({"error": f"LoRA 文件不存在於 GridFS: {lora_name}"}), file=sys.stderr)
             sys.exit(1)
             
         try:
@@ -461,7 +461,7 @@ def main():
                 ("a1111", 0.6),          # A1111 格式支援
                 ("compatibility", 0.5)   # 相容性最低
             ]:
-                print(f"[INFO] 嘗試使用 {method_name} 方式載入 SD 3.5 LoRA")
+                print(f"[INFO] 嘗試使用 {method_name} 方式載入 SD 3.5 LoRA", file=sys.stdout)
                 
                 if method_name == "sd35_native":
                     success = apply_lora_weights_sd35(pipe, weight_file, scale)
@@ -473,7 +473,7 @@ def main():
                     # 嘗試 WebUI 格式的載入
                     if is_webui_lora(weight_file):
                         success = apply_lora_weights_sd35(pipe, weight_file, scale)
-                        print(f"[INFO] 成功使用 WebUI 格式載入 SD 3.5 LoRA")
+                        print(f"[INFO] 成功使用 WebUI 格式載入 SD 3.5 LoRA", file=sys.stdout)
                         break
                 elif method_name == "a1111":
                     # 嘗試 A1111 格式的載入
@@ -488,7 +488,7 @@ def main():
                     
                     if a1111_compatible:
                         success = apply_lora_weights_sd35(pipe, weight_file, scale)
-                        print(f"[INFO] 成功使用 A1111 格式載入 SD 3.5 LoRA")
+                        print(f"[INFO] 成功使用 A1111 格式載入 SD 3.5 LoRA", file=sys.stdout)
                         break
                 elif method_name == "compatibility":
                     # 最後的嘗試：使用多種方法的組合
@@ -496,18 +496,18 @@ def main():
                         pipe.load_lora_weights(weight_file)
                         success = True
                     except:
-                        print(f"[WARN] 相容性模式載入失敗")
+                        print(f"[WARN] 相容性模式載入失敗", file=sys.stderr)
                         success = False
                 
                 if success:
-                    print(f"[INFO] 成功使用 {method_name} 方式載入 SD 3.5 LoRA")
+                    print(f"[INFO] 成功使用 {method_name} 方式載入 SD 3.5 LoRA", file=sys.stdout)
                     break
             
             if not success:
-                print(json.dumps({"error": "所有 LoRA 載入方法均失敗，將使用原始模型生成"}))
+                print(json.dumps({"error": "所有 LoRA 載入方法均失敗，將使用原始模型生成"}), file=sys.stderr)
                 
         except Exception as e:
-            print(json.dumps({"error": f"LoRA 處理過程發生錯誤: {str(e)}"}))
+            print(json.dumps({"error": f"LoRA 處理過程發生錯誤: {str(e)}"}), file=sys.stderr)
             sys.exit(1)
 
     # 3. 產圖 - SD 3.5 產生方式可能不同
@@ -555,20 +555,20 @@ def main():
                 client.close()
                 
             except Exception as e:
-                print(f"[WARN] 第 {i+1} 張圖片上傳到 MongoDB 失敗: {str(e)}")
+                print(f"[WARN] 第 {i+1} 張圖片上傳到 MongoDB 失敗: {str(e)}", file=sys.stderr)
         
         # 清理臨時檔案
         try:
             # 清理不再需要的臨時文件
             if 'weight_file' in locals() and weight_file and os.path.exists(weight_file):
                 os.remove(weight_file)
-                print(f"[INFO] 已清理臨時 LoRA 檔案: {weight_file}")
+                print(f"[INFO] 已清理臨時 LoRA 檔案: {weight_file}", file=sys.stdout)
                 
             if custom_model_path and os.path.exists(custom_model_path):
                 os.remove(custom_model_path)
-                print(f"[INFO] 已清理臨時模型檔案: {custom_model_path}")
+                print(f"[INFO] 已清理臨時模型檔案: {custom_model_path}", file=sys.stdout)
         except Exception as e:
-            print(f"[WARN] 清理臨時檔案失敗: {e}")
+            print(f"[WARN] 清理臨時檔案失敗: {e}", file=sys.stderr)
         
         # 返回所有生成圖片的ID
         if len(all_file_ids) == 1:
