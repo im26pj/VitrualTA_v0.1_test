@@ -13,7 +13,7 @@ import { MemberArea } from "./Pages/MemberArea/Member2";
 import { SetVtuber } from "./Pages/SetVtuber/SetVtuber";
 import { ResultsTracking } from "./Pages/ResultsTracking/Results2";
 import { ChatsRoom1 } from "./Pages/ChatsRoom1/ChatsRoom12";
-import { GroupPage } from "./Pages/Group/Group";
+//import { GroupChat } from "./Pages/Group/Group";
 import { Test } from "./Pages/Test/Test2";
 import { Report } from "./Pages/Report/Report2";
 import { Payment } from "./Pages/Payment/Payment2";
@@ -50,7 +50,7 @@ export const App = () => {
         <Route path="/member-area" element={<ProtectedRoute><MemberArea /></ProtectedRoute>} />
         <Route path="/setvtuber" element={<ProtectedRoute><SetVtuber /></ProtectedRoute>} />
         <Route path="/outcomes-tracking" element={<ProtectedRoute><ResultsTracking /></ProtectedRoute>} />
-        <Route path="/group/:groupName" element={<ProtectedRoute><GroupPage /></ProtectedRoute>} />
+        {/*<Route path="/group/:groupName" element={<ProtectedRoute><GroupChat /></ProtectedRoute>} />*/}
         <Route path="/test" element={<ProtectedRoute><Test /></ProtectedRoute>} />
         <Route path="/report" element={<ProtectedRoute><Report /></ProtectedRoute>} />
         <Route path="/payment" element={<ProtectedRoute><Payment /></ProtectedRoute>} />

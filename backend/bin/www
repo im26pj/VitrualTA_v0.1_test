@@ -4,28 +4,48 @@
  * Module dependencies.
  */
 
-var app = require('../app');
-var debug = require('debug')('backend:server');
-var http = require('http');
+const app = require('../app');
+const debug = require('debug')('backend:server');
+const http = require('http');
+const https = require('https');
+const fs = require('fs');
+const path = require('path');
+const { WebSocketServer } = require('ws');
+const setupWebSocketHandler = require('../websocket-handler');
 
-/**
- * Get port from environment and store in Express.
- */
-
-var port = normalizePort(process.env.PORT || '3000');
+const port = normalizePort(process.env.PORT || '3000');
 app.set('port', port);
 
 /**
- * Create HTTP server.
+ * SSL configuration
  */
 
-var server = http.createServer(app);
+const sslOptions = {
+  key: fs.readFileSync(path.join(__dirname, '../ssl/virtualta.xyz.key')),
+  cert: fs.readFileSync(path.join(__dirname, '../ssl/virtualta.xyz.crt')),
+};
+
+/**
+ * Create HTTPS server
+ */
+
+const server = https.createServer(sslOptions, app);
+
+/**
+ * Setup WebSocket server with HTTPS
+ */
+
+const wss = new WebSocketServer({ server });
+console.log('🌐 WebSocket 伺服器已成功建立並運行中');
+setupWebSocketHandler(wss);
 
 /**
  * Listen on provided port, on all network interfaces.
  */
 
-server.listen(port , '0.0.0.0'); //允許其他設備訪問
+server.listen(port, '0.0.0.0', () => {
+  console.log('🚀 HTTPS Server running on port ' + port);
+});
 server.on('error', onError);
 server.on('listening', onListening);
 

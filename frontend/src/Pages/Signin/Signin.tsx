@@ -1,7 +1,6 @@
 import React, { JSX, useState, useEffect } from "react";
 import { data, useNavigate } from "react-router-dom";
-import { apiGet, apiPost, apiPut, apiDelete } from "../../../api_servers";
-import 'animate.css';
+import { apiGet, apiPost, apiPut, apiDelete } from "../../api_servers";
 import { setAuthToken } from '../../utils/auth';
 
 export const Signin = (): JSX.Element => {
@@ -15,27 +14,27 @@ export const Signin = (): JSX.Element => {
     navigate(path);
   };
 
-  const handleSignin = async () => {
-    try {
-      if (!account.trim() || !password.trim()) {
-        setMessage('請輸入帳號和密碼');
-        return;
-      }
-  
-      const response = await apiPost('/api/login', { account, password });
-      if (response.success) {
-        setAuthToken(response.token); // 存儲 JWT token 到 cookie
-        setMessage('success:登入成功！');
-        setTimeout(() => {
-          handleNavigate("/second");
-        }, 2000); // 2秒後導向
-
-      }
-  
-    } catch (err: any) {
-      setMessage(err.message);
+ const handleSignin = async () => {
+  try {
+    if (!account.trim() || !password.trim()) {
+      setMessage("請輸入帳號和密碼");
+      return;
     }
-  };
+
+    const response = await apiPost("/api/login", { account, password });
+
+if (response.success) {
+  setAuthToken(response.token); // 存 JWT token
+  localStorage.setItem("user", JSON.stringify(response.user)); // 🚀 存 user
+  setMessage("success:登入成功！");
+  setTimeout(() => {
+    handleNavigate("/second");
+  }, 2000);
+}
+  } catch (err: any) {
+    setMessage(err.message);
+  }
+};
 
   useEffect(() => {
     if (message) {

@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { clearAuthToken } from "../../utils/auth";
-import { changePassword } from "../../../api_servers"; // 引入 API 函數
+import { changePassword } from "../../api_servers"; // 引入 API 函數
 
 export const CPassword = () => {
   const [showDropdown, setShowDropdown] = useState(false);

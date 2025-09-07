@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { fetchSSEStream } from "../../../api_servers";
+import { fetchSSEStream } from "../../api_servers";
 import { v4 as uuidv4 } from "uuid";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -113,12 +113,25 @@ export const ChatsRoom1 = () => {
         <style>
           {`
           @import url('https://fonts.googleapis.com/css2?family=Kavoon&display=swap');
+          @import url('https://fonts.googleapis.com/css2?family=Inknut+Antiqua:wght@400;700&display=swap');
           .font-kavoon {
             font-family: 'Kavoon', cursive;
           }
-          @import url('https://fonts.googleapis.com/css2?family=Inknut+Antiqua:wght@400;700&display=swap');
-          .font-Inknut_Antiqua-Regular {
+          .font-inknut {
             font-family: 'Inknut Antiqua', serif;
+          }.custom-scrollbar::-webkit-scrollbar {
+              width: 8px;
+          }
+          .custom-scrollbar::-webkit-scrollbar-track {
+              background: #e0e0e0;
+              border-radius: 10px;
+          }
+          .custom-scrollbar::-webkit-scrollbar-thumb {
+              background: #888;
+              border-radius: 10px;
+          }
+          .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+              background: #555;
           }
   
           /* 新增的打字動畫樣式 */

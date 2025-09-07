@@ -1,7 +1,11 @@
 const express = require('express');
+const multer = require("multer");
+const upload = multer({ dest: "uploads/" });
 const router = express.Router();
 const usercontroller = require('../controller/userController');
 const chatController = require('../controller/chatController');
+const groupController = require('../controller/groupController');
+const uploadController = require('../controller/uploadController');
 
 router.post('/login', usercontroller.login); // 登入
 router.post('/signup', usercontroller.signup); // 註冊
@@ -20,5 +24,20 @@ router.post('/upload/lora', chatController.uploadLora);
 router.post('/upload/model', chatController.uploadModel);
 router.get('/loras', chatController.getLoraList);
 router.get('/models', chatController.getModelList);
+
+// -------- 群組相關 --------
+router.get('/groups', groupController.getAllGroups);
+router.post('/groups', groupController.createGroup);
+router.get('/groups/:id', groupController.getGroupById);
+// 修改加入群組路由，使用群組代碼作為參數
+router.post('/groups/join/:code', groupController.joinGroup);
+router.post('/groups/:id/removeMember', groupController.removeMember);
+router.post('/groups/:id/leave', groupController.leaveGroup);
+router.post('/groups/:groupId/messages', groupController.sendMessage);
+router.get('/groups/:id/messages', groupController.getGroupMessages);
+
+
+// -------- 上傳相關 --------
+router.post('/upload/file', upload.single("file"), uploadController.uploadFileToGroup);
 
 module.exports = router;

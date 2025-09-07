@@ -1,13 +1,13 @@
 import React, { JSX, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { apiPost } from "../../../api_servers";
+import { apiPost } from "../../api_servers";
 
 export const SignUp = (): JSX.Element => {
   const navigate = useNavigate();
 
   const [account, setAccount] = useState('');
   const [password, setPassword] = useState('');
-  const [fullname, setFullname] = useState('');
+  const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [checkpassword, setCheckPassword] = useState('');
   const [message, setMessage] = useState('');
@@ -26,7 +26,7 @@ export const SignUp = (): JSX.Element => {
   const handleSignup = async () => {
     try {
       const data = await apiPost('/api/signup', { 
-        fullname, 
+        fullName, 
         account, 
         password, 
         checkpassword, 
@@ -79,8 +79,8 @@ export const SignUp = (): JSX.Element => {
               <label className="text-black text-[16px] md:text-[20px] lg:text-[24px] font-medium font-Inknut_Antiqua-Regular whitespace-nowrap">Full Name:</label>
               <input
                 type="text"
-                value={fullname}
-                onChange={(e) => setFullname(e.target.value)}
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
                 className="w-full md:w-[70%] h-12 md:h-12 lg:h-14 bg-[#d9d9d980] rounded-[28px] px-4 text-[14px] md:text-[16px]"
               />
             </div>

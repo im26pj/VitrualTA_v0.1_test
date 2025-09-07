@@ -9,7 +9,7 @@ const { GridFSBucket, ObjectId } = require('mongodb');
 const mongoose = require('mongoose');
 const fs = require('fs');
 const path = require('path');
-const debug = require('debug')('app:userController'); // 引入 debug 並設定命名空間
+const debug = require('debug')('app:chatController'); // 引入 debug 並設定命名空間
 
 // 在文件頂部添加 API_BASE_URL 常量
 const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:3000';
@@ -737,7 +737,7 @@ exports.generateGraph = async (req, res) => {
 exports.chatWithOllama = async (req, res) => {
   const { conversationHistory, isVisitor, chat_id, isNewChat, img_64, img_id , model ,  lora_name , genpic_num , webui_style_model_name} = req.body;
   const authHeader = req.headers.authorization;
-  //console.log("loraid: ", lora_name , "modelid" , webui_style_model_name);
+  console.log("loraid: ", lora_name , "modelid" , webui_style_model_name);
   let tunnel = "NEW";
   if (!conversationHistory || !Array.isArray(conversationHistory)) {
     return res.status(400).json({ success: false, message: '缺少對話歷史' });

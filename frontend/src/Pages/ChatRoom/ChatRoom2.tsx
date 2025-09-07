@@ -14,12 +14,13 @@ import {
   getModelList, 
   getLoraList ,
   deleteChatHistory
-} from '../../../api_servers';
+} from '../../api_servers';
 import { SystemContextDiagram } from '../Graph/SCD';
 import { MindMap } from '../Graph/mindmap';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import * as d3 from 'd3';
+import Live2DViewer from "./Live2DViewer"; // **新增**：引入我們的新元件
 
 //有登入頁面
 interface MessageImage {
@@ -234,8 +235,16 @@ export const ChatRoom = (): JSX.Element => {
   const modelFileInputRef = useRef<HTMLInputElement>(null);
   const modelImageInputRef = useRef<HTMLInputElement>(null);
 
+  // 在現有的 state 宣告區域添加以下狀態
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [speechEnabled, setSpeechEnabled] = useState(true);
+  const speechRef = useRef<SpeechSynthesisUtterance | null>(null);
+
   //添加紀錄是否使用lora 、 model 變數
   const [isUsingModelLora, setIsUsingModelLora] = useState<boolean>(false);
+
+  // 在現有的 state 宣告中新增
+  const [currentAssistantText, setCurrentAssistantText] = useState<string>("");
 
   const handleDropdownToggle = () => setShowDropdown(!showDropdown);
 
@@ -358,6 +367,71 @@ export const ChatRoom = (): JSX.Element => {
     }
   };
 
+  // 在 ChatRoom 組件中添加以下函數
+  const speakText = (text: string) => {
+  // 如果當前正在播放，則停止
+  if (isSpeaking) {
+    stopSpeaking();
+  }
+
+  if (!speechEnabled || !text.trim()) return;
+
+  // 停止當前正在播放的語音
+  window.speechSynthesis.cancel();
+
+  // 預處理文本
+  const cleanText = text
+    .replace(/```[\s\S]*?```/g, '')
+    .replace(/`.*?`/g, '')
+    .replace(/\[.*?\]\(.*?\)/g, '')
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/\*(.*?)\*/g, '$1')
+    .replace(/#{1,6}\s/g, '')
+    .replace(/\n/g, '，')
+    .trim();
+
+  const utterance = new SpeechSynthesisUtterance(cleanText);
+  
+  // 等待語音列表載入
+  window.speechSynthesis.onvoiceschanged = () => {
+    const voices = window.speechSynthesis.getVoices();
+    const yatingVoice = voices.find(voice => 
+      voice.name.toLowerCase().includes('microsoft yating')
+    );
+    
+    if (yatingVoice) {
+      utterance.voice = yatingVoice;
+    } else {
+      console.warn('Microsoft Yating voice not found, using default voice');
+    }
+  };
+  
+  // 設定語音參數
+  utterance.lang = 'zh-CN';     // Yating 使用簡體中文
+  utterance.rate = 2.0;         // 語速
+  utterance.pitch = 2.0;        // 音調
+  utterance.volume = 1.0;       // 音量
+
+  // 設定語音事件處理
+  utterance.onstart = () => setIsSpeaking(true);
+  utterance.onend = () => setIsSpeaking(false);
+  utterance.onerror = () => {
+    setIsSpeaking(false);
+    console.error('Speech synthesis error');
+  };
+
+  speechRef.current = utterance;
+  window.speechSynthesis.speak(utterance);
+};
+
+// 修改停止語音的函數
+const stopSpeaking = () => {
+  if (speechRef.current) {
+    window.speechSynthesis.cancel();
+    setIsSpeaking(false);
+  }
+};
+
   // Add function to handle image deletion
   const handleDeletePendingImage = async (fileId: string) => {
     try {
@@ -450,6 +524,27 @@ export const ChatRoom = (): JSX.Element => {
           setMessages(prev => {
             const lastMessage = prev[prev.length - 1];
             
+            if (typeof content === 'string') {
+              if (lastMessage?.role === "assistant") {
+                const updatedContent = lastMessage.content + content;
+                setCurrentAssistantText(updatedContent);
+                
+                // 當收到完整的回應時才朗讀
+                if (!content.endsWith('...') && !isLoading) {
+                  speakText(updatedContent);
+                }
+                
+                return [...prev.slice(0, -1), {
+                  ...lastMessage,
+                  content: updatedContent
+                }];
+              }
+              return [...prev, {
+                role: "assistant",
+                content: content
+              }];
+            }
+            
             // 處理生成的圖片回應
             if (typeof content === 'object' && content.type === 'image') {
               const lastAssistantMsgIndex = [...prev].reverse().findIndex(m => m.role === 'assistant');
@@ -485,14 +580,6 @@ export const ChatRoom = (): JSX.Element => {
               }];
             }
             
-            // 一般文字內容
-            if (lastMessage?.role === "assistant") {
-              return [...prev.slice(0, -1), {
-                ...lastMessage,
-                content: lastMessage.content + (typeof content === 'string' ? content : '')
-              }];
-            }
-            
             return [...prev, {
               role: "assistant",
               content: typeof content === 'string' ? content : ''
@@ -505,6 +592,7 @@ export const ChatRoom = (): JSX.Element => {
       setError(err instanceof Error ? err.message : "發送訊息失敗");
     } finally {
       setIsLoading(false);
+      setCurrentAssistantText(""); // 新增這行
     }
   };
 
@@ -1057,6 +1145,8 @@ export const ChatRoom = (): JSX.Element => {
           : "bg-blue-100 rounded-l-lg rounded-br-lg mr-2"
       } p-4 relative`}>
         
+        {/* 移除原本的朗讀按鈕 */}
+        
         {/* 圖片顯示區塊 - 處理各種可能的格式 */}
         {(msg.images && msg.images.length > 0 || (msg.img_id && msg.img_id.length > 0)) && (
           <div className="flex flex-wrap gap-2 mb-3">
@@ -1562,6 +1652,14 @@ export const ChatRoom = (): JSX.Element => {
       {/* 新增打字動畫樣式 */}
       <style>
         {`
+          @import url('https://fonts.googleapis.com/css2?family=Kavoon&display=swap');
+          @import url('https://fonts.googleapis.com/css2?family=Inknut+Antiqua:wght@400;700&display=swap');
+          .font-kavoon {
+            font-family: 'Kavoon', cursive;
+          }
+          .font-inknut {
+            font-family: 'Inknut Antiqua', serif;
+          }
         .typing-indicator {
           display: inline-flex;
           align-items: center;
@@ -1659,26 +1757,28 @@ export const ChatRoom = (): JSX.Element => {
             />
           </div>
         </div>
-        {showDropdown && (
-          <div className="absolute top-[100px] right-8 w-64 bg-gray-300 rounded-lg shadow-md z-20">
-            <ul className="py-2">
-              {[
-                { label: "Account Management", path: "/member-area" },
-                { label: "Learning System", path: "/chatroom" },
-                { label: "Group Studying", path: "/studying-group" },
-                { label: "Learning Outcomes Tracking", path: "/outcomes-tracking" },
-                { label: "Setting Vtuber", path: "/setvtuber" },
-                { 
-                  label: "Sign Out", 
-                  onClick: handleSignOut,
-                  className: "text-red-600 hover:text-red-800" 
-                },
-              ].map((item, index) => (
-                <li
-                  key={index}
-                  className={`px-6 py-3 text-black hover:bg-gray-400 cursor-pointer text-center font-Inknut_Antiqua-Regular ${item.className || ''}`}
-                  onClick={() => item.onClick ? item.onClick() : handleNavigate(item.path)}
-                >
+            {showDropdown && (
+              <div className="absolute top-[80px] right-0 w-64 bg-gray-300 rounded-lg shadow-md z-20">
+                <ul className="py-2">
+                  {[
+                    { label: "Account Management", path: "/member-area" },
+                    { label: "Learning System", path: "/chatroom" },
+                    { label: "Group Studying", path: "/studying-group" },
+                    { label: "Learning Outcomes Tracking", path: "/outcomes-tracking" },
+                    { label: "Setting Vtuber", path: "/setvtuber" },
+                    { label: "Sign Out", path: "/signin", signout: true },
+                  ].map((item, index) => (
+                    <li
+                      key={index}
+                      className={`px-6 py-3 text-black hover:bg-gray-400 cursor-pointer text-center font-inknut ${
+                        item.signout ? "text-red-600" : ""
+                      }`}
+                      onClick={() =>
+                        item.signout
+                          ? (localStorage.removeItem("token"), navigate(item.path))
+                          : navigate(item.path)
+                      }
+                    >
                   {item.label}
                 </li>
               ))}
@@ -1796,21 +1896,24 @@ export const ChatRoom = (): JSX.Element => {
           flex-1 transition-all duration-300 ease-in-out pt-[30px]  /* 降低頂部間距 */
           ${isSidebarOpen ? 'ml-[300px]' : 'ml-0'}
         `}>
-          <div className={`relative w-full max-w-[1100px] mx-auto h-[calc(100vh-200px)] sm:h-[calc(100vh-140px)] ${ /* 增加減去的高度 */
-            showVtuberImage ? "flex flex-col md:flex-row gap-4 md:gap-8" : "flex flex-col items-center w-full"
+          <div className={`relative w-full max-w-[1100px] mx-auto h-[calc(100vh-250px)] sm:h-[calc(100vh-140px)]
+            ${showVtuberImage ? "flex flex-col md:flex-row md:items-center gap-4 md:gap-8" : "flex flex-col items-center w-full"
           }`}>
+            
+            {/* Live2DViewer */}
             {showVtuberImage && (
-              <img
-                className="w-full max-w-[300px] md:w-1/2 md:max-w-lg h-auto object-contain mx-auto"
-                alt="Vtuber"
-                src="/pic/53783794637-44b575bb56-b-removebg-preview.png"
-              />
+              <div className="w-full max-w-[500px] md:w-[500px] h-full flex-shrink-0">
+                <Live2DViewer 
+                  modelPath="/pic/Mao/Mao.model3.json" 
+                  currentText={currentAssistantText}  // 新增這行
+                />
+              </div>
             )}
 
             <div className={`flex flex-col flex-1 bg-white rounded-3xl px-6 pt-8 pb-32 md:pt-12 
               ${showVtuberImage 
-                ? "w-full md:w-1/2 h-[calc(100vh-250px)]"  /* 增加減去的高度 */
-                : "w-full max-w-[900px] h-[calc(100vh-250px)]"  /* 增加減去的高度 */
+                ? "w-full md:w-auto h-[calc(100vh-250px)]"
+                : "w-full max-w-[900px] h-[calc(100vh-250px)]"
               } relative
               border-2 border-[#B5D1E1] shadow-[0_0_15px_rgba(181,209,225,0.3)]`}>
               <div 
@@ -1834,6 +1937,7 @@ export const ChatRoom = (): JSX.Element => {
                     </p>
                   </div>
                 ) : (
+
                   <div className="flex flex-col gap-4 py-4 px-2">
                     {messages.map((msg, idx) => renderMessage(msg, idx))}
                     {error && (
@@ -2321,269 +2425,9 @@ export const ChatRoom = (): JSX.Element => {
                 </div>
                 </>
               ) : (
-                // 上傳UI部分
-                <>
-                  {/* 左上角返回按鈕 - 加上 hover 效果 */}
-                  <button 
-                    onClick={() => setShowUploadUI(false)}
-                    className="absolute left-1 top-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 hover:scale-110 p-1 rounded-full transition-all"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                    </svg>
-                  </button>
-                  
-                  <div className="flex flex-col md:flex-row gap-6 w-full">
-                    {/* 左側內容 */}
-                    <div className="flex-1 flex flex-col gap-4">
-                      {/* 檔案上傳區域 - 修改為可點擊和顯示上傳中的狀態 */}
-                      <div className="border-2 border-black p-4 rounded-md hover:shadow-md transition-shadow">
-                        <p className="text-center font-bold mb-2">檔案上傳區</p>
-                        <div 
-                          className={`border-2 border-dashed ${uploadingFile ? 'border-green-500 bg-green-50' : 'border-gray-300'} rounded-md p-6 flex flex-col items-center cursor-pointer hover:bg-gray-50 relative ${isModelUploading ? 'pointer-events-none' : ''}`}
-                          onClick={() => modelFileInputRef.current?.click()}
-                          onDragOver={(e) => e.preventDefault()}
-                          onDrop={handleModelFileDrop}
-                        >
-                          {isModelUploading ? (
-                            <div className="flex flex-col items-center justify-center">
-                              <svg className="animate-spin h-10 w-10 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                              </svg>
-                              <p className="mt-2 text-gray-600">上傳中，請稍候...</p>
-                            </div>
-                          ) : uploadingFile ? (
-                            <div className="flex flex-col items-center">
-                              <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                              </svg>
-                              <p className="mt-2 text-gray-700">{uploadingFile.name}</p>
-                              <button 
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setUploadingFile(null);
-                                }}
-                                className="mt-3 px-2 py-1 bg-red-50 text-red-600 text-sm rounded hover:bg-red-100 transition-colors"
-                              >
-                                移除
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="flex flex-col items-center">
-                              <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                              </svg>
-                              <p className="mt-2 text-gray-500">拖放檔案或點擊上傳</p>
-                              <p className="text-xs text-gray-400 mt-1">支援 .safetensors, .ckpt, .pt, .bin, .zip 檔案</p>
-                            </div>
-                          )}
-                        </div>
-                        
-                        {/* 隱藏的檔案輸入元素 */}
-                        <input
-                          type="file"
-                          ref={modelFileInputRef}
-                          onChange={(e) => handleModelFileUpload(e.target.files)}
-                          accept=".safetensors,.ckpt,.pt,.bin,.zip"
-                          style={{ display: 'none' }}
-                        />
-                      </div>
-                      
-                      {/* 圖片上傳、瀏覽區 - 修改為可顯示預覽圖片 */}
-                      <div className="border-2 border-black p-4 rounded-md hover:shadow-md transition-shadow">
-                        <p className="text-center font-bold mb-2">圖片上傳、瀏覽區</p>
-                        <div 
-                          className={`border-2 border-dashed ${filePreview ? 'border-green-500' : 'border-gray-300'} rounded-md p-6 flex flex-col items-center cursor-pointer hover:bg-gray-50 min-h-[200px] relative`}
-                          onClick={() => modelImageInputRef.current?.click()}
-                          onDragOver={(e) => e.preventDefault()}
-                          onDrop={handleModelImageDrop}
-                        >
-                          {filePreview ? (
-                            <div className="flex flex-col items-center">
-                              <img 
-                                src={filePreview} 
-                                alt="預覽圖" 
-                                className="max-h-[150px] max-w-full mb-2 rounded-md" 
-                              />
-                              <button 
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (filePreview) {
-                                    URL.revokeObjectURL(filePreview);
-                                  }
-                                  setFilePreview(null);
-                                }}
-                                className="mt-2 px-2 py-1 bg-red-50 text-red-600 text-sm rounded hover:bg-red-100 transition-colors"
-                              >
-                                移除圖片
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="flex flex-col items-center">
-                              <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                              </svg>
-                              <p className="mt-2 text-gray-500">拖放圖片或點擊上傳</p>
-                              <p className="text-xs text-gray-400 mt-1">支援常見圖片格式</p>
-                            </div>
-                          )}
-                        </div>
-                        
-                        {/* 隱藏的圖片輸入元素 */}
-                        <input
-                          type="file"
-                          ref={modelImageInputRef}
-                          onChange={(e) => handleModelImageUpload(e.target.files)}
-                          accept="image/*"
-                          style={{ display: 'none' }}
-                        />
-                      </div>
-
-                      {/* 錯誤或成功訊息顯示 */}
-                      {uploadMessage && (
-                        <div className={`mt-2 p-3 rounded-md ${
-                          uploadMessage.type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                        }`}>
-                          {uploadMessage.message}
-                        </div>
-                      )}
-                    </div>
-                    
-                    {/* 右側內容 - 根據當前選擇的模型類型顯示不同的表單內容 */}
-                    <div className="w-full md:w-1/3 flex flex-col">
-                      {/* 主要模型選項 - 加上選取效果 */}
-                      <div className="flex gap-4 mb-4">
-                        <button 
-                          className={`border-2 ${modelType === "CUSTOM MODEL" ? "border-blue-500 bg-blue-50" : "border-black"} p-3 text-center hover:bg-gray-100 hover:shadow-md hover:translate-y-[-2px] rounded-md flex-1 transition-all`}
-                          onClick={() => setModelType("CUSTOM MODEL")}
-                        >
-                          CUSTOM MODEL
-                        </button>
-                        <button 
-                          className={`border-2 ${modelType === "LORA" ? "border-blue-500 bg-blue-50" : "border-black"} p-3 text-center hover:bg-gray-100 hover:shadow-md hover:translate-y-[-2px] rounded-md flex-1 transition-all`}
-                          onClick={() => setModelType("LORA")}
-                        >
-                          LORA
-                        </button>
-                      </div>
-                      
-                      {/* SD 版本選擇按鈕 - 加上選取效果 */}
-                      <div className="border-2 border-black p-4 rounded-md mb-4 hover:shadow-md transition-shadow">
-                        <p className="font-bold mb-2">模型類型:</p>
-                        <div className="grid grid-cols-2 gap-2 mb-2">
-                          <button 
-                            className={`p-2 text-center text-sm rounded-md transition-colors ${
-                              sdVersion === "sd15" ? 'bg-blue-500 text-white' : 'bg-gray-100 hover:bg-gray-200'
-                            }`}
-                            onClick={() => setSdVersion("sd15")}
-                            disabled={isModelUploading}
-                          >
-                            SD 1.5
-                          </button>
-                          <button 
-                            className={`p-2 text-center text-sm rounded-md transition-colors ${
-                              sdVersion === "sd21" ? 'bg-blue-500 text-white' : 'bg-gray-100 hover:bg-gray-200'
-                            }`}
-                            onClick={() => setSdVersion("sd21")}
-                            disabled={isModelUploading}
-                          >
-                            SD 2.1
-                          </button>
-                          <button 
-                            className={`p-2 text-center text-sm rounded-md transition-colors ${
-                              sdVersion === "sdxl" ? 'bg-blue-500 text-white' : 'bg-gray-100 hover:bg-gray-200'
-                            }`}
-                            onClick={() => setSdVersion("sdxl")}
-                            disabled={isModelUploading}
-                          >
-                            SD XL
-                          </button>
-                          <button 
-                            className={`p-2 text-center text-sm rounded-md transition-colors ${
-                              sdVersion === "sd3-m" ? 'bg-blue-500 text-white' : 'bg-gray-100 hover:bg-gray-200'
-                            }`}
-                            onClick={() => setSdVersion("sd3-m")}
-                            disabled={isModelUploading}
-                          >
-                            SD 3 - M
-                          </button>
-                          <button 
-                            className={`p-2 text-center text-sm rounded-md transition-colors ${
-                              sdVersion === "sd35-m" ? 'bg-blue-500 text-white' : 'bg-gray-100 hover:bg-gray-200'
-                            }`}
-                            onClick={() => setSdVersion("sd35-m")}
-                            disabled={isModelUploading}
-                          >
-                            SD 3.5 - M
-                          </button>
-                          <button 
-                            className={`p-2 text-center text-sm rounded-md transition-colors ${
-                              sdVersion === "sd35-l" ? 'bg-blue-500 text-white' : 'bg-gray-100 hover:bg-gray-200'
-                            }`}
-                            onClick={() => setSdVersion("sd35-l")}
-                            disabled={isModelUploading}
-                          >
-                            SD 3.5 - L
-                          </button>
-                        </div>
-                      </div>
-                      
-                      {/* 描述 - 加上可輸入文字功能 */}
-                      <div>
-                        <p className="font-bold mb-2">DESCRIPTION:</p>
-                        <textarea
-                          className="border-2 border-black rounded-md p-2 w-full h-20 hover:border-blue-400 hover:shadow-sm transition-all focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                          value={modelDescription}
-                          onChange={(e) => setModelDescription(e.target.value)}
-                          placeholder="輸入模型描述..."
-                        ></textarea>
-                      </div>
-                      
-                      {/* 或文字顯示 */}
-                      <div className="text-center my-4">
-                        <p>OR</p>
-                      </div>
-                      
-                      {/* 檔案路徑 - 改為可輸入網址的文字框 */}
-                      <div>
-                        <p className="font-bold mb-2">FILE PATH:</p>
-                        <input
-                          type="text"
-                          className="border-2 border-black rounded-md p-2 h-10 w-full hover:border-blue-400 hover:shadow-sm transition-all focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                          placeholder="輸入模型網址(當前僅支援civitai)..."
-                          value={modelUrl}
-                          onChange={(e) => setModelUrl(e.target.value)}
-                        />
-                      </div>
-                      
-                      {/* UPLOAD 按鈕 - 修改為呼叫上傳函數並顯示上傳中狀態 */}
-                      <div className="flex justify-end mt-auto pt-4">
-                        <button 
-                          className={`border-2 border-black p-3 text-center rounded-md transition-all ${
-                            isModelUploading 
-                              ? 'opacity-70 cursor-not-allowed' 
-                              : 'hover:bg-gray-100 hover:shadow-md hover:translate-y-[-2px]'
-                          }`}
-                          onClick={uploadModelOrLora}
-                          disabled={isModelUploading}
-                        >
-                          {isModelUploading ? (
-                            <div className="flex items-center justify-center">
-                              <svg className="animate-spin -ml-1 mr-2 h-5 w-5 text-black" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                              </svg>
-                              上傳中...
-                            </div>
-                          ) : (
-                            "UPLOAD"
-                          )}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </>
+                // 上傳介面內容
+                <div className="w-full h-full flex flex-col items-center justify-center">
+                </div>
               )}
             </div>
           </div>

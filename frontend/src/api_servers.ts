@@ -1,4 +1,4 @@
-import { getAuthToken } from "./src/utils/auth";
+import { getAuthToken } from "./utils/auth";
 
 interface ApiError {
   success: boolean;

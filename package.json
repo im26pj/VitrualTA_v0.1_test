@@ -1,0 +1,8 @@
+{
+  "dependencies": {
+    "@types/multer-gridfs-storage": "^4.0.8",
+    "firebase": "^12.1.0",
+    "multer-gridfs-storage": "^5.0.2",
+    "ws": "^8.18.3"
+  }
+}
