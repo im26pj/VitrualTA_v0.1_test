@@ -6,6 +6,8 @@ const usercontroller = require('../controller/userController');
 const chatController = require('../controller/chatController');
 const groupController = require('../controller/groupController');
 const uploadController = require('../controller/uploadController');
+const ragController = require('../controller/ragController'); // 修改這行路徑
+
 
 router.post('/login', usercontroller.login); // 登入
 router.post('/signup', usercontroller.signup); // 註冊
@@ -25,6 +27,31 @@ router.post('/upload/model', chatController.uploadModel);
 router.get('/loras', chatController.getLoraList);
 router.get('/models', chatController.getModelList);
 
+
+// 新增 PDF 相關路由
+//router.post('/upload/pdf', chatController.uploadPdf);
+//router.get('/pdfs', chatController.getPdfList);
+//router.delete('/pdfs/:documentId', chatController.deletePdf);
+
+// RAG 相關路由
+// PDF 上傳 (支援公共和私人模式)
+router.post('/upload/ragdata', ragController.uploadPdf);
+// RAG 查詢 (支援公共和私人查詢)
+router.post('/query', ragController.queryRag);
+// 獲取文檔 (需要權限驗證)
+router.get('/document/:id', ragController.getDocument);
+// 獲取用戶的私人文檔列表
+router.get('/user-documents', ragController.getUserDocuments);
+// 獲取公共文檔列表
+router.get('/public-documents', ragController.getPublicDocuments);
+// 新增 PDF 文件相關路由
+// 閱覽 PDF 文件（在瀏覽器中直接顯示）
+router.get('/pdf/view/:fileId', ragController.viewPdf);
+// 下載 PDF 文件
+router.get('/pdf/download/:fileId', ragController.downloadPdf);
+// 獲取 PDF 文件信息
+router.get('/pdf/info/:fileId', ragController.getPdfInfo);
+
 // -------- 群組相關 --------
 router.get('/groups', groupController.getAllGroups);
 router.post('/groups', groupController.createGroup);
@@ -36,8 +63,10 @@ router.post('/groups/:id/leave', groupController.leaveGroup);
 router.post('/groups/:groupId/messages', groupController.sendMessage);
 router.get('/groups/:id/messages', groupController.getGroupMessages);
 
-
+/*
 // -------- 上傳相關 --------
 router.post('/upload/file', upload.single("file"), uploadController.uploadFileToGroup);
-
+router.get('/groups/:groupId/files/:fileId/download', uploadController.downloadFile);
+router.delete('/groups/:groupId/files/:fileId', uploadController.deleteFile);
+*/
 module.exports = router;

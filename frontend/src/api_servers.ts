@@ -540,3 +540,51 @@ export const apiPostFormData = async (endpoint: string, formData: FormData): Pro
 
   throw new Error(lastError || '檔案上傳失敗');
 };
+
+// Add interface for PDF upload response
+interface UploadPdfResponse {
+  success: boolean;
+  documentId: string;
+  fileName: string;
+  isPublic: boolean;
+  message: string;
+}
+
+// Add function to upload PDF files
+export const uploadPdf = async (formData: FormData): Promise<UploadPdfResponse> => {
+  const serverList = getBaseServers();
+  const token = getAuthToken();
+  let lastError: string | null = null;
+
+  for (const base of serverList) {
+    if (base.startsWith('ws')) continue; // Skip WebSocket URLs
+  
+    const url = `${base}/api/upload/ragdata`;
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        lastError = errorData?.message || `伺服器錯誤：${response.status}`;
+        console.error(`PDF 上傳失敗：${lastError}`);
+        continue;
+      }
+
+      const data = await response.json();
+      return data;
+
+    } catch (err: any) {
+      lastError = err.message;
+      console.error(`PDF 上傳錯誤：${lastError}`);
+      continue;
+    }
+  }
+
+  throw new Error(lastError || 'PDF 上傳失敗');
+};

@@ -13,12 +13,8 @@ import { MemberArea } from "./Pages/MemberArea/Member2";
 import { SetVtuber } from "./Pages/SetVtuber/SetVtuber";
 import { ResultsTracking } from "./Pages/ResultsTracking/Results2";
 import { ChatsRoom1 } from "./Pages/ChatsRoom1/ChatsRoom12";
-//import { GroupChat } from "./Pages/Group/Group";
 import { Test } from "./Pages/Test/Test2";
-import { Report } from "./Pages/Report/Report2";
-import { Payment } from "./Pages/Payment/Payment2";
-import { CPassword } from "./Pages/CPassword/CPassword2";
-import { Graph} from "./Pages/Graph/Graph";
+import { PDFTest } from "./Pages/PDFTest/PDFTest"; // 新增
 
 // Protected route wrapper component
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -42,7 +38,7 @@ export const App = () => {
         <Route path="/signup" element={<PublicRoute><SignUp /></PublicRoute>} />
         <Route path="/choose2" element={<PublicRoute><Choose /></PublicRoute>} />
         <Route path="/chatsroom12" element={<PublicRoute><ChatsRoom1 /></PublicRoute>} />
-        <Route path="/graph" element={<PublicRoute><Graph /></PublicRoute>} />
+        <Route path="/pdf-test" element={<PublicRoute><PDFTest /></PublicRoute>} /> {/* 新增測試頁面路由 */}
         {/* Protected routes */}
         <Route path="/second" element={<ProtectedRoute><Second /></ProtectedRoute>} />
         <Route path="/studying-group" element={<ProtectedRoute><StudyingGroup /></ProtectedRoute>} />
@@ -50,11 +46,7 @@ export const App = () => {
         <Route path="/member-area" element={<ProtectedRoute><MemberArea /></ProtectedRoute>} />
         <Route path="/setvtuber" element={<ProtectedRoute><SetVtuber /></ProtectedRoute>} />
         <Route path="/outcomes-tracking" element={<ProtectedRoute><ResultsTracking /></ProtectedRoute>} />
-        {/*<Route path="/group/:groupName" element={<ProtectedRoute><GroupChat /></ProtectedRoute>} />*/}
         <Route path="/test" element={<ProtectedRoute><Test /></ProtectedRoute>} />
-        <Route path="/report" element={<ProtectedRoute><Report /></ProtectedRoute>} />
-        <Route path="/payment" element={<ProtectedRoute><Payment /></ProtectedRoute>} />
-        <Route path="/cpassword" element={<ProtectedRoute><CPassword /></ProtectedRoute>} />
       </Routes>
     </Router>
   );

@@ -11,7 +11,10 @@ export interface User {
 
 export interface FileItem {
   name: string;
+  originalName?: string; // 添加此行
   url: string;
+  downloadUrl?: string; // 添加下載URL
+  id?: string;          // 添加文檔ID
 }
 
 export interface Group {
